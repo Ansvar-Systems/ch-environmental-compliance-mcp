@@ -3,14 +3,20 @@ import { SUPPORTED_JURISDICTIONS } from '../jurisdiction.js';
 
 export function handleAbout() {
   return {
-    name: 'Switzerland Crop Nutrients MCP',
+    name: 'Switzerland Environmental Compliance MCP',
     description:
-      'Swiss crop nutrient recommendations based on GRUD (Agroscope), Suisse-Bilanz (BLW), and OELN standards. ' +
-      'Provides NPK planning, soil classification, nitrogen balance (Suisse-Bilanz), manure nutrient values, ' +
-      'and commodity pricing for agricultural decision-making in Switzerland.',
+      'Swiss environmental compliance data for agriculture: Gewaesserschutz (GSchG), Grundwasserschutzzonen, ' +
+      'Pufferstreifen, Ammoniakemissionen (LRV, Agrammon), Biodiversitaetsfoerderflaechen (BFF), ' +
+      'Naehrstoffverlust-Absenkpfad (Pa.Iv. 19.475), UVP-Schwellenwerte, and Bodenbelastung (VBBo). ' +
+      'Covers federal regulations and cantonal implementation for Swiss agricultural operations.',
     version: '0.1.0',
     jurisdiction: [...SUPPORTED_JURISDICTIONS],
-    data_sources: ['GRUD 2017 (Agroscope)', 'Suisse-Bilanz Wegleitung (BLW)', 'AGRIDEA Duengungsplanung', 'SBV Produzentenpreise'],
+    data_sources: [
+      'BAFU — Gewaesserschutz, Luftreinhaltung, Biodiversitaet',
+      'BLW — OELN-Auflagen, BFF-Typen, DZV',
+      'Agroscope — Agrammon Ammoniakemissionsfaktoren',
+      'Kantonale Umweltaemter — Grundwasserschutzzonen',
+    ],
     tools_count: 11,
     links: {
       homepage: 'https://ansvar.eu/open-agriculture',

@@ -11,14 +11,14 @@ import { createDatabase, type Database } from './db.js';
 import { handleAbout } from './tools/about.js';
 import { handleListSources } from './tools/list-sources.js';
 import { handleCheckFreshness } from './tools/check-freshness.js';
-import { handleSearchCropRequirements } from './tools/search-crop-requirements.js';
-import { handleGetNutrientPlan } from './tools/get-nutrient-plan.js';
-import { handleGetSoilClassification } from './tools/get-soil-classification.js';
-import { handleListCrops } from './tools/list-crops.js';
-import { handleGetCropDetails } from './tools/get-crop-details.js';
-import { handleGetCommodityPrice } from './tools/get-commodity-price.js';
-import { handleCalculateMargin } from './tools/calculate-margin.js';
-import { handleGetManureValues } from './tools/get-manure-values.js';
+import { handleSearchEnvironmentalRules } from './tools/search-environmental-rules.js';
+import { handleGetWaterProtectionZones } from './tools/get-water-protection-zones.js';
+import { handleGetBufferZoneRules } from './tools/get-buffer-zone-rules.js';
+import { handleGetAmmoniaRules } from './tools/get-ammonia-rules.js';
+import { handleGetBffRequirements } from './tools/get-bff-requirements.js';
+import { handleGetNutrientLossLimits } from './tools/get-nutrient-loss-limits.js';
+import { handleGetEipRequirements } from './tools/get-eip-requirements.js';
+import { handleCheckEnvironmentalCompliance } from './tools/check-environmental-compliance.js';
 
 const SERVER_NAME = 'ch-environmental-compliance-mcp';
 const SERVER_VERSION = '0.1.0';
@@ -26,53 +26,46 @@ const PORT = parseInt(process.env.PORT ?? '3000', 10);
 
 const SearchArgsSchema = z.object({
   query: z.string(),
-  crop_group: z.string().optional(),
+  topic: z.string().optional(),
   jurisdiction: z.string().optional(),
   limit: z.number().optional(),
 });
 
-const NutrientPlanArgsSchema = z.object({
-  crop: z.string(),
-  soil_type: z.string(),
-  altitude_zone: z.string().optional(),
-  previous_crop: z.string().optional(),
+const WaterProtectionArgsSchema = z.object({
+  zone_type: z.string().optional(),
   jurisdiction: z.string().optional(),
 });
 
-const SoilArgsSchema = z.object({
-  soil_type: z.string().optional(),
-  texture: z.string().optional(),
-  ph_class: z.string().optional(),
+const BufferZoneArgsSchema = z.object({
+  zone_type: z.string().optional(),
   jurisdiction: z.string().optional(),
 });
 
-const ListCropsArgsSchema = z.object({
-  crop_group: z.string().optional(),
+const AmmoniaArgsSchema = z.object({
+  technique: z.string().optional(),
   jurisdiction: z.string().optional(),
 });
 
-const CropDetailsArgsSchema = z.object({
-  crop: z.string(),
+const BffArgsSchema = z.object({
+  bff_type: z.string().optional(),
+  quality_level: z.string().optional(),
   jurisdiction: z.string().optional(),
 });
 
-const PriceArgsSchema = z.object({
-  crop: z.string(),
-  market: z.string().optional(),
+const NutrientLossArgsSchema = z.object({
+  nutrient: z.string().optional(),
   jurisdiction: z.string().optional(),
 });
 
-const MarginArgsSchema = z.object({
-  crop: z.string(),
-  yield_t_ha: z.number(),
-  price_per_tonne: z.number().optional(),
-  input_costs: z.number().optional(),
+const EipArgsSchema = z.object({
+  project_type: z.string().optional(),
   jurisdiction: z.string().optional(),
 });
 
-const ManureArgsSchema = z.object({
-  animal_category: z.string().optional(),
-  housing_system: z.string().optional(),
+const ComplianceArgsSchema = z.object({
+  facility_type: z.string(),
+  animal_count: z.number().optional(),
+  area_ha: z.number().optional(),
   jurisdiction: z.string().optional(),
 });
 
@@ -93,13 +86,13 @@ const TOOLS = [
     inputSchema: { type: 'object' as const, properties: {} },
   },
   {
-    name: 'search_crop_requirements',
-    description: 'Search crop nutrient requirements, soil data, and recommendations. Use for broad queries about crops and nutrients.',
+    name: 'search_environmental_rules',
+    description: 'Search Swiss environmental compliance rules across all topics: Gewaesserschutz, Ammoniak, BFF, Pufferstreifen, VBBo, UVP.',
     inputSchema: {
       type: 'object' as const,
       properties: {
-        query: { type: 'string', description: 'Free-text search query' },
-        crop_group: { type: 'string', description: 'Filter by crop group (e.g. cereals, oilseeds)' },
+        query: { type: 'string', description: 'Free-text search query (German or English)' },
+        topic: { type: 'string', description: 'Filter by topic (e.g. Gewaesserschutz, Ammoniak, BFF, UVP, VBBo)' },
         jurisdiction: { type: 'string', description: 'ISO 3166-1 alpha-2 code (default: CH)' },
         limit: { type: 'number', description: 'Max results (default: 20, max: 50)' },
       },
@@ -107,94 +100,84 @@ const TOOLS = [
     },
   },
   {
-    name: 'get_nutrient_plan',
-    description: 'Get NPK fertiliser recommendation for a specific crop and soil type. Based on GRUD/Suisse-Bilanz.',
+    name: 'get_water_protection_zones',
+    description: 'Get Grundwasserschutzzonen (S1, S2, S3, Sm, Zu) with restrictions and legal basis. Based on GSchG/GSchV.',
     inputSchema: {
       type: 'object' as const,
       properties: {
-        crop: { type: 'string', description: 'Crop ID or name (e.g. winter-wheat)' },
-        soil_type: { type: 'string', description: 'Soil type ID or name (e.g. heavy-clay)' },
-        altitude_zone: { type: 'string', description: 'Altitude zone (e.g. valley, hill, mountain)' },
-        previous_crop: { type: 'string', description: 'Previous crop group for rotation adjustment' },
-        jurisdiction: { type: 'string', description: 'ISO 3166-1 alpha-2 code (default: CH)' },
-      },
-      required: ['crop', 'soil_type'],
-    },
-  },
-  {
-    name: 'get_soil_classification',
-    description: 'Get soil group, characteristics, and drainage class for a soil type or texture.',
-    inputSchema: {
-      type: 'object' as const,
-      properties: {
-        soil_type: { type: 'string', description: 'Soil type ID or name' },
-        texture: { type: 'string', description: 'Soil texture (e.g. clay, sand, loam)' },
-        ph_class: { type: 'string', description: 'pH class (e.g. acidic, neutral, alkaline)' },
+        zone_type: { type: 'string', description: 'Zone type: S1, S2, S3, Sm, Zu (omit for all zones)' },
         jurisdiction: { type: 'string', description: 'ISO 3166-1 alpha-2 code (default: CH)' },
       },
     },
   },
   {
-    name: 'list_crops',
-    description: 'List all crops in the database, optionally filtered by crop group.',
+    name: 'get_buffer_zone_rules',
+    description: 'Get Pufferstreifen distances and requirements along water bodies, hedges, and boundaries. Based on OELN/ChemRRV.',
     inputSchema: {
       type: 'object' as const,
       properties: {
-        crop_group: { type: 'string', description: 'Filter by crop group (e.g. cereals)' },
+        zone_type: { type: 'string', description: 'Buffer type filter (e.g. Gewaesser, Hecke, Nachbar, SPe)' },
         jurisdiction: { type: 'string', description: 'ISO 3166-1 alpha-2 code (default: CH)' },
       },
     },
   },
   {
-    name: 'get_crop_details',
-    description: 'Get full profile for a crop: nutrient offtake, typical yields, growth stages.',
+    name: 'get_ammonia_rules',
+    description: 'Get Ammoniakemissionen rules: emission factors by technique, Schleppschlauch-Pflicht, Agrammon parameters. Based on LRV.',
     inputSchema: {
       type: 'object' as const,
       properties: {
-        crop: { type: 'string', description: 'Crop ID or name' },
+        technique: { type: 'string', description: 'Application technique filter (e.g. Schleppschlauch, Prallteller, Injektion)' },
         jurisdiction: { type: 'string', description: 'ISO 3166-1 alpha-2 code (default: CH)' },
       },
-      required: ['crop'],
     },
   },
   {
-    name: 'get_commodity_price',
-    description: 'Get latest commodity price for a crop with source attribution. Warns if data is stale (>14 days).',
+    name: 'get_bff_requirements',
+    description: 'Get BFF types, QI/QII payment rates, minimum area requirements, and botanical criteria. Based on DZV.',
     inputSchema: {
       type: 'object' as const,
       properties: {
-        crop: { type: 'string', description: 'Crop ID or name' },
-        market: { type: 'string', description: 'Market type (e.g. ex-farm, delivered)' },
+        bff_type: { type: 'string', description: 'BFF type filter (e.g. extensiv-wiese, buntbrache, hecke)' },
+        quality_level: { type: 'string', description: 'Quality level: QI or QII' },
         jurisdiction: { type: 'string', description: 'ISO 3166-1 alpha-2 code (default: CH)' },
       },
-      required: ['crop'],
     },
   },
   {
-    name: 'calculate_margin',
-    description: 'Estimate gross margin for a crop. Uses current commodity price if price_per_tonne not provided.',
+    name: 'get_nutrient_loss_limits',
+    description: 'Get Pa.Iv. 19.475 nutrient loss reduction targets for N and P through 2030.',
     inputSchema: {
       type: 'object' as const,
       properties: {
-        crop: { type: 'string', description: 'Crop ID or name' },
-        yield_t_ha: { type: 'number', description: 'Expected yield in tonnes per hectare' },
-        price_per_tonne: { type: 'number', description: 'Override price (CHF/t). If omitted, uses latest market price.' },
-        input_costs: { type: 'number', description: 'Total input costs per hectare (CHF). Default: 0' },
+        nutrient: { type: 'string', description: 'Nutrient filter: N or P' },
         jurisdiction: { type: 'string', description: 'ISO 3166-1 alpha-2 code (default: CH)' },
       },
-      required: ['crop', 'yield_t_ha'],
     },
   },
   {
-    name: 'get_manure_values',
-    description: 'Get manure nutrient content (N, P2O5, K2O) per GVE by animal category and housing system.',
+    name: 'get_eip_requirements',
+    description: 'Get UVP thresholds for agricultural buildings and VBBo Richtwerte for soil contamination.',
     inputSchema: {
       type: 'object' as const,
       properties: {
-        animal_category: { type: 'string', description: 'Animal category (e.g. dairy-cow, suckler-cow, pig-fattening)' },
-        housing_system: { type: 'string', description: 'Housing system (e.g. loose-housing, tied-stall)' },
+        project_type: { type: 'string', description: 'Project type filter (e.g. Stallbau, Biogasanlage)' },
         jurisdiction: { type: 'string', description: 'ISO 3166-1 alpha-2 code (default: CH)' },
       },
+    },
+  },
+  {
+    name: 'check_environmental_compliance',
+    description: 'Check which environmental rules apply to a given agricultural operation.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        facility_type: { type: 'string', description: 'Type of operation (e.g. Milchwirtschaft, Schweinehaltung, Ackerbau)' },
+        animal_count: { type: 'number', description: 'Number of animals (GVE) — used for ammonia and UVP thresholds' },
+        area_ha: { type: 'number', description: 'Farm area in hectares — used for BFF minimum calculations' },
+        jurisdiction: { type: 'string', description: 'ISO 3166-1 alpha-2 code (default: CH)' },
+      },
+      required: ['facility_type'],
     },
   },
 ];
@@ -221,22 +204,22 @@ function registerTools(server: Server, db: Database): void {
           return textResult(handleListSources(db));
         case 'check_data_freshness':
           return textResult(handleCheckFreshness(db));
-        case 'search_crop_requirements':
-          return textResult(handleSearchCropRequirements(db, SearchArgsSchema.parse(args)));
-        case 'get_nutrient_plan':
-          return textResult(handleGetNutrientPlan(db, NutrientPlanArgsSchema.parse(args)));
-        case 'get_soil_classification':
-          return textResult(handleGetSoilClassification(db, SoilArgsSchema.parse(args)));
-        case 'list_crops':
-          return textResult(handleListCrops(db, ListCropsArgsSchema.parse(args)));
-        case 'get_crop_details':
-          return textResult(handleGetCropDetails(db, CropDetailsArgsSchema.parse(args)));
-        case 'get_commodity_price':
-          return textResult(handleGetCommodityPrice(db, PriceArgsSchema.parse(args)));
-        case 'calculate_margin':
-          return textResult(handleCalculateMargin(db, MarginArgsSchema.parse(args)));
-        case 'get_manure_values':
-          return textResult(handleGetManureValues(db, ManureArgsSchema.parse(args)));
+        case 'search_environmental_rules':
+          return textResult(handleSearchEnvironmentalRules(db, SearchArgsSchema.parse(args)));
+        case 'get_water_protection_zones':
+          return textResult(handleGetWaterProtectionZones(db, WaterProtectionArgsSchema.parse(args)));
+        case 'get_buffer_zone_rules':
+          return textResult(handleGetBufferZoneRules(db, BufferZoneArgsSchema.parse(args)));
+        case 'get_ammonia_rules':
+          return textResult(handleGetAmmoniaRules(db, AmmoniaArgsSchema.parse(args)));
+        case 'get_bff_requirements':
+          return textResult(handleGetBffRequirements(db, BffArgsSchema.parse(args)));
+        case 'get_nutrient_loss_limits':
+          return textResult(handleGetNutrientLossLimits(db, NutrientLossArgsSchema.parse(args)));
+        case 'get_eip_requirements':
+          return textResult(handleGetEipRequirements(db, EipArgsSchema.parse(args)));
+        case 'check_environmental_compliance':
+          return textResult(handleCheckEnvironmentalCompliance(db, ComplianceArgsSchema.parse(args)));
         default:
           return errorResult(`Unknown tool: ${name}`);
       }

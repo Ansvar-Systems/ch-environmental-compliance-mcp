@@ -1,20 +1,24 @@
 {
-  "server": "ch-crop-nutrients-mcp",
+  "server": "ch-environmental-compliance-mcp",
   "jurisdiction": "CH",
   "version": "0.1.0",
   "last_ingest": "2026-04-05",
   "data": {
-    "crops": 18,
-    "soil_types": 10,
-    "nutrient_recommendations": 15,
-    "manure_values": 11,
-    "commodity_prices": 12
+    "water_protection_zones": 5,
+    "buffer_zones": 9,
+    "ammonia_rules": 10,
+    "bff_types": 18,
+    "nutrient_loss_limits": 8,
+    "environmental_rules": 16,
+    "fts_entries": 66
   },
   "tools": 11,
   "sources": [
-    "GRUD 2017 (Agroscope)",
-    "Suisse-Bilanz Wegleitung (BLW)",
-    "AGRIDEA",
-    "SBV/swiss granum"
+    "BAFU — GSchG/GSchV (Gewaesserschutz)",
+    "BAFU — LRV (Luftreinhaltung, Ammoniak)",
+    "BLW — DZV (BFF, OELN)",
+    "Agroscope — Agrammon (Emissionsfaktoren)",
+    "Parlament — Pa.Iv. 19.475 (Absenkpfad)",
+    "BAFU — VBBo (Bodenbelastung)"
   ]
 }

@@ -4,20 +4,20 @@ import { ftsSearch, type Database } from '../db.js';
 
 interface SearchArgs {
   query: string;
-  crop_group?: string;
+  topic?: string;
   jurisdiction?: string;
   limit?: number;
 }
 
-export function handleSearchCropRequirements(db: Database, args: SearchArgs) {
+export function handleSearchEnvironmentalRules(db: Database, args: SearchArgs) {
   const jv = validateJurisdiction(args.jurisdiction);
   if (!jv.valid) return jv.error;
 
   const limit = Math.min(args.limit ?? 20, 50);
   let results = ftsSearch(db, args.query, limit);
 
-  if (args.crop_group) {
-    results = results.filter(r => r.crop_group.toLowerCase() === args.crop_group!.toLowerCase());
+  if (args.topic) {
+    results = results.filter(r => r.topic.toLowerCase().includes(args.topic!.toLowerCase()));
   }
 
   return {
@@ -27,7 +27,7 @@ export function handleSearchCropRequirements(db: Database, args: SearchArgs) {
     results: results.map(r => ({
       title: r.title,
       body: r.body,
-      crop_group: r.crop_group,
+      topic: r.topic,
       relevance_rank: r.rank,
     })),
     _meta: buildMeta(),

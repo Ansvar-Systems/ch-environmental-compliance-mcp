@@ -1,12 +1,13 @@
 /**
- * Switzerland Crop Nutrients MCP — Data Ingestion Script
+ * Switzerland Environmental Compliance MCP — Data Ingestion Script
  *
- * Populates the database with Swiss crop nutrient data from:
- * - GRUD 2017 (Agroscope) — Duengungsnormen, Naehrstoffbedarf pro Kultur
- * - Suisse-Bilanz Wegleitung (BLW) — Betriebsbilanz, Korrekturfaktoren
- * - AGRIDEA — Duengungsplanung, kantonale Empfehlungen
- * - SBV / BLW — Produzentenpreise, Marktbeobachtung
- * - GRUD Kapitel 10 — Naehrstoffgehalte Hofduenger
+ * Populates the database with Swiss environmental compliance data from:
+ * - BAFU — Gewaesserschutzgesetz (GSchG), Gewaesserschutzverordnung (GSchV)
+ * - BAFU — Luftreinhalte-Verordnung (LRV), Ammoniakemissionen
+ * - BLW — Direktzahlungsverordnung (DZV), OELN, BFF-Typen
+ * - Agroscope — Agrammon-Emissionsfaktoren
+ * - Parlament — Pa.Iv. 19.475 Absenkpfad Naehrstoffverluste
+ * - BAFU — VBBo (Verordnung ueber Belastungen des Bodens)
  *
  * Usage: npm run ingest
  */
@@ -20,542 +21,891 @@ const db = createDatabase('data/database.db');
 const now = new Date().toISOString().split('T')[0];
 
 // ---------------------------------------------------------------------------
-// 1. Crops — Swiss arable, forage, root crops, permanent grassland
-//    Sources: GRUD 2017 (Agroscope), DZV Anhang, AGRIDEA Deckungsbeitraege
+// 1. Grundwasserschutzzonen — GSchG Art. 20, GSchV Anhang 4
 // ---------------------------------------------------------------------------
 
-interface Crop {
-  id: string;
+interface WaterProtectionZone {
+  zone_type: string;
   name: string;
-  crop_group: string;
-  typical_yield_t_ha: number;
-  nutrient_offtake_n: number;
-  nutrient_offtake_p2o5: number;
-  nutrient_offtake_k2o: number;
-  growth_stages: string[];
-  altitude_zone: string;
-}
-
-const crops: Crop[] = [
-  // --- Getreide (Talzone) ---
-  {
-    id: 'winterweizen',
-    name: 'Winterweizen',
-    crop_group: 'getreide',
-    typical_yield_t_ha: 6.5,
-    nutrient_offtake_n: 130,
-    nutrient_offtake_p2o5: 52,
-    nutrient_offtake_k2o: 39,
-    growth_stages: ['Bestockung', 'Schossen', 'Aehrenschieben', 'Bluete', 'Kornfuellung', 'Reife'],
-    altitude_zone: 'talzone',
-  },
-  {
-    id: 'sommerweizen',
-    name: 'Sommerweizen',
-    crop_group: 'getreide',
-    typical_yield_t_ha: 5.5,
-    nutrient_offtake_n: 110,
-    nutrient_offtake_p2o5: 44,
-    nutrient_offtake_k2o: 33,
-    growth_stages: ['Bestockung', 'Schossen', 'Aehrenschieben', 'Bluete', 'Kornfuellung', 'Reife'],
-    altitude_zone: 'talzone',
-  },
-  {
-    id: 'wintergerste',
-    name: 'Wintergerste',
-    crop_group: 'getreide',
-    typical_yield_t_ha: 6.0,
-    nutrient_offtake_n: 108,
-    nutrient_offtake_p2o5: 48,
-    nutrient_offtake_k2o: 42,
-    growth_stages: ['Bestockung', 'Schossen', 'Aehrenschieben', 'Kornfuellung', 'Reife'],
-    altitude_zone: 'talzone',
-  },
-  {
-    id: 'sommergerste',
-    name: 'Sommergerste',
-    crop_group: 'getreide',
-    typical_yield_t_ha: 5.0,
-    nutrient_offtake_n: 85,
-    nutrient_offtake_p2o5: 40,
-    nutrient_offtake_k2o: 35,
-    growth_stages: ['Bestockung', 'Schossen', 'Aehrenschieben', 'Kornfuellung', 'Reife'],
-    altitude_zone: 'talzone',
-  },
-  {
-    id: 'winterraps',
-    name: 'Winterraps',
-    crop_group: 'oelsaaten',
-    typical_yield_t_ha: 3.5,
-    nutrient_offtake_n: 140,
-    nutrient_offtake_p2o5: 56,
-    nutrient_offtake_k2o: 49,
-    growth_stages: ['Rosette', 'Streckung', 'Knospe', 'Bluete', 'Schote', 'Reife'],
-    altitude_zone: 'talzone',
-  },
-  {
-    id: 'sonnenblumen',
-    name: 'Sonnenblumen',
-    crop_group: 'oelsaaten',
-    typical_yield_t_ha: 3.0,
-    nutrient_offtake_n: 105,
-    nutrient_offtake_p2o5: 42,
-    nutrient_offtake_k2o: 105,
-    growth_stages: ['Auflaufen', 'Rosette', 'Stengel', 'Knospe', 'Bluete', 'Kornfuellung', 'Reife'],
-    altitude_zone: 'talzone',
-  },
-  {
-    id: 'koernermais',
-    name: 'Koernermais',
-    crop_group: 'getreide',
-    typical_yield_t_ha: 10.0,
-    nutrient_offtake_n: 140,
-    nutrient_offtake_p2o5: 65,
-    nutrient_offtake_k2o: 50,
-    growth_stages: ['Auflaufen', '4-6 Blatt', 'Schossen', 'Fahnenschieben', 'Bluete', 'Kornfuellung', 'Reife'],
-    altitude_zone: 'talzone',
-  },
-  {
-    id: 'silomais',
-    name: 'Silomais',
-    crop_group: 'futterbau',
-    typical_yield_t_ha: 17.0,
-    nutrient_offtake_n: 170,
-    nutrient_offtake_p2o5: 68,
-    nutrient_offtake_k2o: 204,
-    growth_stages: ['Auflaufen', '4-6 Blatt', 'Schossen', 'Fahnenschieben', 'Bluete', 'Teigreife'],
-    altitude_zone: 'talzone',
-  },
-  {
-    id: 'kartoffeln',
-    name: 'Kartoffeln',
-    crop_group: 'hackfruechte',
-    typical_yield_t_ha: 40.0,
-    nutrient_offtake_n: 160,
-    nutrient_offtake_p2o5: 32,
-    nutrient_offtake_k2o: 200,
-    growth_stages: ['Auflaufen', 'Stauden', 'Bluete', 'Krautabsterben', 'Ernte'],
-    altitude_zone: 'talzone',
-  },
-  {
-    id: 'zuckerrueben',
-    name: 'Zuckerrueben',
-    crop_group: 'hackfruechte',
-    typical_yield_t_ha: 75.0,
-    nutrient_offtake_n: 150,
-    nutrient_offtake_p2o5: 53,
-    nutrient_offtake_k2o: 225,
-    growth_stages: ['Auflaufen', '4-Blatt', 'Reihenschluss', 'Wachstum', 'Zuckereinlagerung', 'Ernte'],
-    altitude_zone: 'talzone',
-  },
-  {
-    id: 'kunstwiese-3j',
-    name: 'Kunstwiese 3-jaehrig',
-    crop_group: 'futterbau',
-    typical_yield_t_ha: 12.0,
-    nutrient_offtake_n: 240,
-    nutrient_offtake_p2o5: 72,
-    nutrient_offtake_k2o: 264,
-    growth_stages: ['1. Schnitt', '2. Schnitt', '3. Schnitt', '4. Schnitt'],
-    altitude_zone: 'talzone',
-  },
-  {
-    id: 'naturwiese-intensiv',
-    name: 'Naturwiese intensiv',
-    crop_group: 'futterbau',
-    typical_yield_t_ha: 10.0,
-    nutrient_offtake_n: 180,
-    nutrient_offtake_p2o5: 60,
-    nutrient_offtake_k2o: 220,
-    growth_stages: ['1. Schnitt', '2. Schnitt', '3. Schnitt', '4. Schnitt'],
-    altitude_zone: 'talzone',
-  },
-  {
-    id: 'naturwiese-mittelintensiv',
-    name: 'Naturwiese mittelintensiv',
-    crop_group: 'futterbau',
-    typical_yield_t_ha: 7.5,
-    nutrient_offtake_n: 120,
-    nutrient_offtake_p2o5: 45,
-    nutrient_offtake_k2o: 165,
-    growth_stages: ['1. Schnitt', '2. Schnitt', '3. Schnitt'],
-    altitude_zone: 'talzone',
-  },
-  {
-    id: 'naturwiese-extensiv',
-    name: 'Naturwiese extensiv (BFF)',
-    crop_group: 'futterbau',
-    typical_yield_t_ha: 4.0,
-    nutrient_offtake_n: 0,
-    nutrient_offtake_p2o5: 0,
-    nutrient_offtake_k2o: 0,
-    growth_stages: ['1. Schnitt (ab 15.6.)', '2. Schnitt'],
-    altitude_zone: 'talzone',
-  },
-  {
-    id: 'dinkel',
-    name: 'Dinkel',
-    crop_group: 'getreide',
-    typical_yield_t_ha: 4.5,
-    nutrient_offtake_n: 100,
-    nutrient_offtake_p2o5: 41,
-    nutrient_offtake_k2o: 32,
-    growth_stages: ['Bestockung', 'Schossen', 'Aehrenschieben', 'Bluete', 'Kornfuellung', 'Reife'],
-    altitude_zone: 'talzone',
-  },
-  {
-    id: 'triticale',
-    name: 'Triticale',
-    crop_group: 'getreide',
-    typical_yield_t_ha: 6.0,
-    nutrient_offtake_n: 108,
-    nutrient_offtake_p2o5: 48,
-    nutrient_offtake_k2o: 42,
-    growth_stages: ['Bestockung', 'Schossen', 'Aehrenschieben', 'Kornfuellung', 'Reife'],
-    altitude_zone: 'talzone',
-  },
-  {
-    id: 'koernereiweisserbsen',
-    name: 'Eiweisserbsen',
-    crop_group: 'koernerleguminosen',
-    typical_yield_t_ha: 3.5,
-    nutrient_offtake_n: 0,
-    nutrient_offtake_p2o5: 35,
-    nutrient_offtake_k2o: 42,
-    growth_stages: ['Auflaufen', 'Verzweigung', 'Bluete', 'Huelsenfuellung', 'Reife'],
-    altitude_zone: 'talzone',
-  },
-  {
-    id: 'sojabohnen',
-    name: 'Sojabohnen',
-    crop_group: 'koernerleguminosen',
-    typical_yield_t_ha: 3.0,
-    nutrient_offtake_n: 0,
-    nutrient_offtake_p2o5: 42,
-    nutrient_offtake_k2o: 48,
-    growth_stages: ['Auflaufen', 'Verzweigung', 'Bluete', 'Huelsenfuellung', 'Reife'],
-    altitude_zone: 'talzone',
-  },
-];
-
-// ---------------------------------------------------------------------------
-// 2. Soil Types — Swiss soil classification (10 types)
-//    Source: GRUD Anhang, Bodenkarte Schweiz
-// ---------------------------------------------------------------------------
-
-interface SoilType {
-  id: string;
-  name: string;
-  soil_group: number;
-  texture: string;
-  drainage_class: string;
-  ph_class: string;
+  restrictions: string;
   description: string;
+  legal_basis: string;
 }
 
-const soilTypes: SoilType[] = [
-  { id: 'leichter-sand', name: 'Leichter Sandboden', soil_group: 1, texture: 'sand', drainage_class: 'sehr durchlaessig', ph_class: 'B', description: 'Tiefgruendiger Sandboden, <10% Ton, geringe Wasserhaltefaehigkeit' },
-  { id: 'sandiger-lehm', name: 'Sandiger Lehmboden', soil_group: 2, texture: 'sandiger-lehm', drainage_class: 'gut durchlaessig', ph_class: 'C', description: '10-15% Ton, gute Bearbeitbarkeit, mittlere Wasserhaltefaehigkeit' },
-  { id: 'leichter-lehm', name: 'Leichter Lehmboden', soil_group: 3, texture: 'lehm', drainage_class: 'maessig durchlaessig', ph_class: 'C', description: '15-20% Ton, vielseitig nutzbar, gute Naehrstoffversorgung' },
-  { id: 'mittlerer-lehm', name: 'Mittlerer Lehmboden', soil_group: 4, texture: 'lehm', drainage_class: 'maessig durchlaessig', ph_class: 'C', description: '20-30% Ton, gute Ertragsfaehigkeit, typischer Ackerboden Mittelland' },
-  { id: 'schwerer-lehm', name: 'Schwerer Lehmboden', soil_group: 5, texture: 'toniger-lehm', drainage_class: 'schwer durchlaessig', ph_class: 'C', description: '30-40% Ton, hohe Naehrstoffspeicherung, schwere Bearbeitung' },
-  { id: 'tonboden', name: 'Tonboden', soil_group: 6, texture: 'ton', drainage_class: 'sehr schwer durchlaessig', ph_class: 'D', description: '>40% Ton, sehr hohe Naehrstoffspeicherung, Staunassegefahr' },
-  { id: 'humoser-lehm', name: 'Humoser Lehmboden', soil_group: 7, texture: 'humoser-lehm', drainage_class: 'maessig durchlaessig', ph_class: 'C', description: '4-8% Humus, hohe biologische Aktivitaet, gute Strukturstabilitaet' },
-  { id: 'moorig', name: 'Mooriger Boden', soil_group: 8, texture: 'torf', drainage_class: 'variabel', ph_class: 'A', description: '>15% organische Substanz, hohes N-Nachlieferungspotenzial, Sackungs­gefahr' },
-  { id: 'kalkboden', name: 'Kalkboden / Rendzina', soil_group: 9, texture: 'kalkig-lehm', drainage_class: 'gut durchlaessig', ph_class: 'E', description: 'Karbonatreicher Boden, pH >7.5, Jura/Voralpen typisch, P-Festlegung' },
-  { id: 'bergboden', name: 'Brauner Bergboden', soil_group: 10, texture: 'steiniger-lehm', drainage_class: 'gut durchlaessig', ph_class: 'B', description: 'Flachgruendig, steinig, Bergzone I-IV, tiefere Ertraege' },
+const waterProtectionZones: WaterProtectionZone[] = [
+  {
+    zone_type: 'S1',
+    name: 'Fassungsbereich',
+    restrictions: 'Kein Zugang fuer Unbefugte. Keine Bauten, keine Anlagen, keine Bewirtschaftung. Kein Duenger, kein Pflanzenschutzmittel. Nur Grundwasserentnahme gestattet.',
+    description: 'Unmittelbarer Bereich um die Grundwasserfassung (Brunnen, Quelle). Strengste Schutzzone. Typisch 10-15m Radius um die Fassung.',
+    legal_basis: 'GSchG Art. 20, GSchV Anhang 4 Ziff. 12',
+  },
+  {
+    zone_type: 'S2',
+    name: 'Engere Schutzzone',
+    restrictions: 'Kein Duenger (weder Hofdunger noch Mineraldunger). Keine Pflanzenschutzmittel. Keine Grabungen unter die Humusschicht. Keine Lagerung wassergefaehrdender Stoffe. Keine Tierhaltungsanlagen. Nur extensive Bewirtschaftung (Wiese).',
+    description: 'Engere Umgebung der Fassung. Soll verhindern, dass Keime und abbaubare Verunreinigungen die Fassung erreichen. Typisch 100-200m, Mindestaufenthaltszeit Grundwasser 10 Tage.',
+    legal_basis: 'GSchG Art. 20, GSchV Anhang 4 Ziff. 222',
+  },
+  {
+    zone_type: 'S3',
+    name: 'Weitere Schutzzone',
+    restrictions: 'Eingeschraenkte Duengung und PSM-Anwendung gemaess kantonalen Auflagen. Keine neuen Tierhaltungsanlagen ohne Bewilligung. Keine Deponien. Keine Versickerungsanlagen fuer verschmutztes Abwasser. Baubewilligungen mit Auflagen.',
+    description: 'Aeusserer Schutzbereich. Soll verhindern, dass nicht abbaubare Verunreinigungen (z.B. Kohlenwasserstoffe) die Fassung erreichen. Umfasst typisch das gesamte Einzugsgebiet.',
+    legal_basis: 'GSchG Art. 20, GSchV Anhang 4 Ziff. 232',
+  },
+  {
+    zone_type: 'Sm',
+    name: 'Quellenbereich (Quellschutzzone)',
+    restrictions: 'Analog S1/S2 je nach kantonaler Festlegung. Keine Eingriffe in den Untergrund. Keine Entwaldung. Drainagen verboten.',
+    description: 'Schutzzone um Quellfassungen. Quellenspezifische Abgrenzung nach hydrogeologischem Gutachten. Besonders relevant im Berggebiet und Jura.',
+    legal_basis: 'GSchG Art. 20, GSchV Anhang 4 Ziff. 123',
+  },
+  {
+    zone_type: 'Zu',
+    name: 'Zustroembereich',
+    restrictions: 'In bestimmten Zustraembereichen (Art. 62a GSchG): Pestizidverbote oder -einschraenkungen, Nitratreduktionsprogramme mit Beitraegen, verschaerfte Duengungsauflagen. Kantonale Festlegung.',
+    description: 'Gesamtes Einzugsgebiet einer Grundwasserfassung ausserhalb der Schutzzonen. Massnahmen bei erhoehten Nitrat- oder PSM-Konzentrationen. Art. 62a GSchG ermoeglicht Abgeltungen fuer Bewirtschaftungseinschraenkungen.',
+    legal_basis: 'GSchG Art. 29 / Art. 62a, GSchV Art. 29',
+  },
 ];
 
-// ---------------------------------------------------------------------------
-// 3. Nutrient Recommendations — GRUD 2017
-//    N based on Stickstoffbedarfswerte, P/K on GRUD Entzugsduengung
-// ---------------------------------------------------------------------------
+const insertWaterZone = db.instance.prepare(
+  `INSERT OR REPLACE INTO water_protection_zones (zone_type, name, restrictions, description, legal_basis, jurisdiction, language)
+   VALUES (?, ?, ?, ?, ?, 'CH', 'DE')`
+);
 
-interface NutrientRec {
-  crop_id: string;
-  soil_group: number;
-  altitude_zone: string;
-  previous_crop_group: string | null;
-  n_rec_kg_ha: number;
-  p_rec_kg_ha: number;
-  k_rec_kg_ha: number;
-  mg_rec_kg_ha: number;
-  notes: string;
-  grud_section: string;
+for (const z of waterProtectionZones) {
+  insertWaterZone.run(z.zone_type, z.name, z.restrictions, z.description, z.legal_basis);
 }
 
-const nutrientRecs: NutrientRec[] = [
-  // Winterweizen — Talzone, different soil groups
-  { crop_id: 'winterweizen', soil_group: 1, altitude_zone: 'talzone', previous_crop_group: null, n_rec_kg_ha: 140, p_rec_kg_ha: 52, k_rec_kg_ha: 65, mg_rec_kg_ha: 15, notes: 'N-Bedarfswert GRUD: 140 kg N/ha bei 6.5 t/ha Ertrag. P/K Entzugsduengung bei Versorgungsklasse C.', grud_section: 'GRUD Kap. 6/7' },
-  { crop_id: 'winterweizen', soil_group: 4, altitude_zone: 'talzone', previous_crop_group: null, n_rec_kg_ha: 140, p_rec_kg_ha: 48, k_rec_kg_ha: 55, mg_rec_kg_ha: 12, notes: 'Mittlerer Lehm: leicht reduzierter K-Bedarf durch hoehere Bodenvorraete.', grud_section: 'GRUD Kap. 6/7' },
-  { crop_id: 'winterweizen', soil_group: 4, altitude_zone: 'talzone', previous_crop_group: 'koernerleguminosen', n_rec_kg_ha: 120, p_rec_kg_ha: 48, k_rec_kg_ha: 55, mg_rec_kg_ha: 12, notes: 'Vorfrucht Leguminose: N-Reduktion um 20 kg/ha (Suisse-Bilanz Korrekturfaktor).', grud_section: 'GRUD Kap. 6/7' },
-  { crop_id: 'winterweizen', soil_group: 4, altitude_zone: 'huegelzone', previous_crop_group: null, n_rec_kg_ha: 120, p_rec_kg_ha: 42, k_rec_kg_ha: 48, mg_rec_kg_ha: 10, notes: 'Huegelzone: reduzierter Ertrag (~5.5 t/ha) und entsprechend geringerer Naehrstoffbedarf.', grud_section: 'GRUD Kap. 6/7' },
-
-  // Winterraps
-  { crop_id: 'winterraps', soil_group: 4, altitude_zone: 'talzone', previous_crop_group: null, n_rec_kg_ha: 150, p_rec_kg_ha: 56, k_rec_kg_ha: 70, mg_rec_kg_ha: 15, notes: 'Hoher N-Bedarf, Herbst-N beachten (40-60 kg N vor Winter fuer Rosette). S-Duengung 20-30 kg S/ha empfohlen.', grud_section: 'GRUD Kap. 6' },
-
-  // Koernermais
-  { crop_id: 'koernermais', soil_group: 4, altitude_zone: 'talzone', previous_crop_group: null, n_rec_kg_ha: 130, p_rec_kg_ha: 65, k_rec_kg_ha: 60, mg_rec_kg_ha: 15, notes: 'N-Bedarfswert bei 10 t/ha. Band-/Unterfussduengung reduziert P-Bedarf. Mais hat hohes K-Aufnahmevermoegen.', grud_section: 'GRUD Kap. 6/7' },
-
-  // Silomais
-  { crop_id: 'silomais', soil_group: 4, altitude_zone: 'talzone', previous_crop_group: null, n_rec_kg_ha: 120, p_rec_kg_ha: 68, k_rec_kg_ha: 200, mg_rec_kg_ha: 15, notes: 'Hoher K-Entzug durch Ganzpflanzenernte! Hofduenger bevorzugt einsetzen.', grud_section: 'GRUD Kap. 6/7' },
-
-  // Kartoffeln
-  { crop_id: 'kartoffeln', soil_group: 4, altitude_zone: 'talzone', previous_crop_group: null, n_rec_kg_ha: 140, p_rec_kg_ha: 55, k_rec_kg_ha: 200, mg_rec_kg_ha: 20, notes: 'Kartoffeln: hoher K-Bedarf. Chloridempfindlich — Kalidüngung im Herbst (Patentkali) oder chloridfreie Formen.', grud_section: 'GRUD Kap. 6/7' },
-
-  // Zuckerrueben
-  { crop_id: 'zuckerrueben', soil_group: 4, altitude_zone: 'talzone', previous_crop_group: null, n_rec_kg_ha: 120, p_rec_kg_ha: 55, k_rec_kg_ha: 250, mg_rec_kg_ha: 25, notes: 'Niedrigerer N, um Zuckergehalt zu sichern. Sehr hoher K-Bedarf. Na-Duengung (50 kg/ha) foerdert Ertrag.', grud_section: 'GRUD Kap. 6/7' },
-
-  // Kunstwiese
-  { crop_id: 'kunstwiese-3j', soil_group: 4, altitude_zone: 'talzone', previous_crop_group: null, n_rec_kg_ha: 170, p_rec_kg_ha: 72, k_rec_kg_ha: 260, mg_rec_kg_ha: 20, notes: 'Bei >30% Kleeanteil: N-Reduktion um 30-50 kg/ha. Staffelung der N-Gaben ueber 4 Schnitte.', grud_section: 'GRUD Kap. 8' },
-
-  // Naturwiese intensiv
-  { crop_id: 'naturwiese-intensiv', soil_group: 4, altitude_zone: 'talzone', previous_crop_group: null, n_rec_kg_ha: 130, p_rec_kg_ha: 60, k_rec_kg_ha: 220, mg_rec_kg_ha: 15, notes: 'Talzone intensiv Dauergruenland. P/K-Entzugsduengung. Hofduenger deckt Grossteil des Bedarfs.', grud_section: 'GRUD Kap. 8' },
-
-  // Naturwiese mittelintensiv
-  { crop_id: 'naturwiese-mittelintensiv', soil_group: 4, altitude_zone: 'talzone', previous_crop_group: null, n_rec_kg_ha: 80, p_rec_kg_ha: 45, k_rec_kg_ha: 165, mg_rec_kg_ha: 10, notes: 'Wenig intensiv genutztes Gruenland. Max 3 Schnitte. Hofduenger in der Regel ausreichend.', grud_section: 'GRUD Kap. 8' },
-
-  // Dinkel
-  { crop_id: 'dinkel', soil_group: 4, altitude_zone: 'talzone', previous_crop_group: null, n_rec_kg_ha: 110, p_rec_kg_ha: 41, k_rec_kg_ha: 45, mg_rec_kg_ha: 10, notes: 'Dinkel (Urdinkel/UrDinkel): geringerer N-Bedarf als Weizen. Extenso-tauglich (ohne Fungizide/Insektizide).', grud_section: 'GRUD Kap. 6' },
-
-  // Eiweisserbsen
-  { crop_id: 'koernereiweisserbsen', soil_group: 4, altitude_zone: 'talzone', previous_crop_group: null, n_rec_kg_ha: 0, p_rec_kg_ha: 35, k_rec_kg_ha: 55, mg_rec_kg_ha: 10, notes: 'Leguminose: kein N-Duenger noetig (biologische N-Fixierung). Positive Vorfruchtwirkung 20-40 kg N/ha.', grud_section: 'GRUD Kap. 6' },
-
-  // Sojabohnen
-  { crop_id: 'sojabohnen', soil_group: 4, altitude_zone: 'talzone', previous_crop_group: null, n_rec_kg_ha: 0, p_rec_kg_ha: 42, k_rec_kg_ha: 55, mg_rec_kg_ha: 10, notes: 'Leguminose: Impfung mit Bradyrhizobium japonicum bei Erstanbau. Kein N-Duenger.', grud_section: 'GRUD Kap. 6' },
-];
+console.log(`Inserted ${waterProtectionZones.length} water protection zones`);
 
 // ---------------------------------------------------------------------------
-// 4. Manure Values — GRUD Kapitel 10 (Hofduenger Naehrstoffgehalte)
+// 2. Pufferstreifen — OELN (DZV), ChemRRV, SPe-Auflagen
 // ---------------------------------------------------------------------------
 
-interface ManureValue {
-  animal_category: string;
-  housing_system: string;
-  n_per_gve: number;
-  p2o5_per_gve: number;
-  k2o_per_gve: number;
-  nh3_loss_pct: number;
+interface BufferZone {
+  type: string;
+  distance_m: number;
+  requirement: string;
+  source_law: string;
   notes: string;
 }
 
-const manureValues: ManureValue[] = [
-  { animal_category: 'milchkuh', housing_system: 'laufstall', n_per_gve: 105, p2o5_per_gve: 35, k2o_per_gve: 115, nh3_loss_pct: 15, notes: 'Milchkuh 6500 kg/Jahr. Guelle + Mist. Laufstall reduziert NH3 vs. Anbindestall.' },
-  { animal_category: 'milchkuh', housing_system: 'anbindestall', n_per_gve: 105, p2o5_per_gve: 35, k2o_per_gve: 115, nh3_loss_pct: 18, notes: 'Anbindestall: hoehere NH3-Verluste durch groessere Guelleoberfläche.' },
-  { animal_category: 'mutterkuh', housing_system: 'tiefstreu', n_per_gve: 95, p2o5_per_gve: 32, k2o_per_gve: 100, nh3_loss_pct: 12, notes: 'Mutterkuhhaltung Tiefstreu. Weniger Guelle, mehr Mist.' },
-  { animal_category: 'aufzuchtrind', housing_system: 'laufstall', n_per_gve: 85, p2o5_per_gve: 28, k2o_per_gve: 90, nh3_loss_pct: 14, notes: 'Aufzucht 1-2 Jahre. Pro Tier ca. 0.4-0.6 GVE.' },
-  { animal_category: 'mastschwein', housing_system: 'spalten', n_per_gve: 112, p2o5_per_gve: 48, k2o_per_gve: 60, nh3_loss_pct: 20, notes: 'Mastschwein 25-110 kg. Pro Tier ca. 0.17 GVE. N-reduzierte Fuetterung senkt N-Anfall um 10-15%.' },
-  { animal_category: 'zuchtsau', housing_system: 'spalten', n_per_gve: 120, p2o5_per_gve: 55, k2o_per_gve: 65, nh3_loss_pct: 22, notes: 'Zuchtsau mit Ferkeln bis 8 kg. Pro Tier ca. 0.45 GVE.' },
-  { animal_category: 'legehenne', housing_system: 'bodenhaltung', n_per_gve: 145, p2o5_per_gve: 75, k2o_per_gve: 65, nh3_loss_pct: 25, notes: 'Legehenne. Pro Tier ca. 0.014 GVE. Huehnermist ist P-reich — Suisse-Bilanz beachten!' },
-  { animal_category: 'mastpoulet', housing_system: 'bodenhaltung', n_per_gve: 150, p2o5_per_gve: 62, k2o_per_gve: 70, nh3_loss_pct: 28, notes: 'Mastpoulet. Pro Tier ca. 0.005 GVE. Trockenheit Einstreu: hohe NH3-Verluste.' },
-  { animal_category: 'pferd', housing_system: 'box', n_per_gve: 80, p2o5_per_gve: 25, k2o_per_gve: 90, nh3_loss_pct: 15, notes: 'Pferd. Pro Tier ca. 1.0 GVE. Pferdemist: geringer N, hoher K, gut fuer Kompost.' },
-  { animal_category: 'schaf', housing_system: 'laufstall', n_per_gve: 85, p2o5_per_gve: 25, k2o_per_gve: 75, nh3_loss_pct: 12, notes: 'Mutterschaf mit Lamm. Pro Tier ca. 0.17 GVE. Schafmist gut strukturiert.' },
-  { animal_category: 'ziege', housing_system: 'laufstall', n_per_gve: 90, p2o5_per_gve: 28, k2o_per_gve: 80, nh3_loss_pct: 12, notes: 'Milchziege. Pro Tier ca. 0.17 GVE.' },
+const bufferZones: BufferZone[] = [
+  {
+    type: 'Gewaesser — ungeduengt',
+    distance_m: 6,
+    requirement: 'Entlang aller oberirdischen Gewaesser (Baeche, Fluesse, Seen): 6m Pufferstreifen ohne Duengung (weder Hofdunger noch Mineraldunger).',
+    source_law: 'DZV Anhang 1 Ziff. 9.7 (OELN)',
+    notes: 'Gemessen ab Boeschungsoberkante. Gilt fuer alle Direktzahlungsempfaenger.',
+  },
+  {
+    type: 'Gewaesser — unbehandelt',
+    distance_m: 6,
+    requirement: 'Entlang aller oberirdischen Gewaesser: 6m Pufferstreifen ohne Pflanzenschutzmittel-Anwendung.',
+    source_law: 'DZV Anhang 1 Ziff. 9.6 (OELN)',
+    notes: 'Gemessen ab Boeschungsoberkante. Zusaetzliche 6m SPe-Reduktionszone bei vielen PSM.',
+  },
+  {
+    type: 'Hecken und Feldgehoelze',
+    distance_m: 3,
+    requirement: 'Entlang Hecken, Feld- und Ufergehoelzen: 3m Pufferstreifen ohne Duenger und Pflanzenschutzmittel.',
+    source_law: 'DZV Anhang 1 Ziff. 9.7 (OELN)',
+    notes: 'Gemessen ab Stockausschlag. BFF-Anrechnung moeglich.',
+  },
+  {
+    type: 'Nachbarflaechen',
+    distance_m: 0.5,
+    requirement: 'Mindestens 50 cm Abstand zu Nachbarflaechen bei Duenger- und PSM-Ausbringung.',
+    source_law: 'ChemRRV Anhang 2.5',
+    notes: 'Bei Geblaesespritze im Rebbau/Obstbau groesserer Abstand noetig. Kantonale Regelungen koennen strenger sein.',
+  },
+  {
+    type: 'SPe 3 — 20m Reduktion',
+    distance_m: 20,
+    requirement: '20m Pufferstreifen zu Oberflaechengewaessern fuer PSM mit SPe 3-Auflage (20m). Keine PSM-Anwendung in diesem Streifen.',
+    source_law: 'ChemRRV Anhang 2.5 / PSM-Zulassung BLW',
+    notes: 'Spezifische Auflage je PSM-Produkt. Reduktion moeglich mit Abdriftminderungstechnik (50%/75%/90%).',
+  },
+  {
+    type: 'SPe 3 — 50m Reduktion',
+    distance_m: 50,
+    requirement: '50m Pufferstreifen zu Oberflaechengewaessern fuer PSM mit SPe 3-Auflage (50m). Keine PSM-Anwendung in diesem Streifen.',
+    source_law: 'ChemRRV Anhang 2.5 / PSM-Zulassung BLW',
+    notes: 'Nur bei bestimmten Herbiziden und Insektiziden mit hoher Gewaessertoxizitaet. Reduktion moeglich mit anerkannter Technik.',
+  },
+  {
+    type: 'SPe 3 — 100m Reduktion',
+    distance_m: 100,
+    requirement: '100m Pufferstreifen zu Oberflaechengewaessern fuer PSM mit SPe 3-Auflage (100m). Keine PSM-Anwendung in diesem Streifen.',
+    source_law: 'ChemRRV Anhang 2.5 / PSM-Zulassung BLW',
+    notes: 'Strengste SPe-Auflage. Gilt fuer einzelne hochgiftige Wirkstoffe. Reduktion moeglich auf 50m mit 90%-Abdriftminderung.',
+  },
+  {
+    type: 'Grundwasserschutzzone S2',
+    distance_m: 0,
+    requirement: 'In der Schutzzone S2 ist jegliche Duengung und PSM-Anwendung verboten. Nur extensive Wiesennutzung erlaubt.',
+    source_law: 'GSchV Anhang 4 Ziff. 222',
+    notes: 'Kein fixer Abstand — Verbot gilt fuer die gesamte S2-Flaeche.',
+  },
+  {
+    type: 'Biotope / Naturschutzgebiete',
+    distance_m: 6,
+    requirement: '6m Pufferstreifen ohne Duenger und PSM rund um Biotope von nationaler und regionaler Bedeutung.',
+    source_law: 'DZV Anhang 1 Ziff. 9.7 (OELN) / NHG',
+    notes: 'Kantone koennen groessere Abstande festlegen. Gilt fuer Moore, Trockenwiesen, Auengebiete.',
+  },
 ];
 
-// ---------------------------------------------------------------------------
-// 5. Commodity Prices — Swiss producer prices (SBV/BLW data)
-// ---------------------------------------------------------------------------
+const insertBuffer = db.instance.prepare(
+  `INSERT OR REPLACE INTO buffer_zones (type, distance_m, requirement, source_law, notes, jurisdiction, language)
+   VALUES (?, ?, ?, ?, ?, 'CH', 'DE')`
+);
 
-interface CommodityPrice {
-  crop_id: string;
-  market: string;
-  price_per_tonne: number;
-  price_source: string;
-  published_date: string;
-  source: string;
+for (const b of bufferZones) {
+  insertBuffer.run(b.type, b.distance_m, b.requirement, b.source_law, b.notes);
 }
 
-const prices: CommodityPrice[] = [
-  { crop_id: 'winterweizen', market: 'produzentenpreis', price_per_tonne: 520, price_source: 'SBV/swiss granum', published_date: now, source: 'swiss granum Richtpreise Brotweizen Top' },
-  { crop_id: 'sommerweizen', market: 'produzentenpreis', price_per_tonne: 510, price_source: 'SBV/swiss granum', published_date: now, source: 'swiss granum Richtpreise Brotweizen I' },
-  { crop_id: 'wintergerste', market: 'produzentenpreis', price_per_tonne: 380, price_source: 'SBV/swiss granum', published_date: now, source: 'swiss granum Richtpreise Futtergerste' },
-  { crop_id: 'sommergerste', market: 'produzentenpreis', price_per_tonne: 440, price_source: 'SBV/swiss granum', published_date: now, source: 'swiss granum Richtpreise Braugerste' },
-  { crop_id: 'winterraps', market: 'produzentenpreis', price_per_tonne: 800, price_source: 'SBV/swiss granum', published_date: now, source: 'swiss granum Richtpreise HOLL-Raps' },
-  { crop_id: 'sonnenblumen', market: 'produzentenpreis', price_per_tonne: 760, price_source: 'SBV/swiss granum', published_date: now, source: 'swiss granum Richtpreise HO-Sonnenblumen' },
-  { crop_id: 'koernermais', market: 'produzentenpreis', price_per_tonne: 390, price_source: 'SBV/swiss granum', published_date: now, source: 'swiss granum Richtpreise Futtermais' },
-  { crop_id: 'kartoffeln', market: 'produzentenpreis', price_per_tonne: 320, price_source: 'swisspatat', published_date: now, source: 'swisspatat Richtpreise Speisekartoffeln fest' },
-  { crop_id: 'zuckerrueben', market: 'produzentenpreis', price_per_tonne: 52, price_source: 'Schweizer Zucker AG', published_date: now, source: 'Schweizer Zucker AG Ruebenpreis (inkl. Fruehrodungszuschlag)' },
-  { crop_id: 'dinkel', market: 'produzentenpreis', price_per_tonne: 620, price_source: 'SBV/swiss granum', published_date: now, source: 'swiss granum Richtpreise UrDinkel' },
-  { crop_id: 'koernereiweisserbsen', market: 'produzentenpreis', price_per_tonne: 530, price_source: 'SBV/swiss granum', published_date: now, source: 'swiss granum Richtpreise Futtereiweisserbsen' },
-  { crop_id: 'sojabohnen', market: 'produzentenpreis', price_per_tonne: 850, price_source: 'SBV/swiss granum', published_date: now, source: 'swiss granum Richtpreise Speisesoja' },
+console.log(`Inserted ${bufferZones.length} buffer zone rules`);
+
+// ---------------------------------------------------------------------------
+// 3. Ammoniakemissionen — LRV, Agrammon, Agroscope
+// ---------------------------------------------------------------------------
+
+interface AmmoniaRule {
+  technique: string;
+  emission_factor: number | null;
+  requirement: string;
+  legal_basis: string;
+  effective_date: string | null;
+  notes: string;
+}
+
+const ammoniaRules: AmmoniaRule[] = [
+  {
+    technique: 'Prallteller (Breitverteiler)',
+    emission_factor: 100,
+    requirement: 'Referenztechnik. Ab 2024 auf offener Ackerflaeche nicht mehr zulaessig (Schleppschlauch-Pflicht). Auf Gruenland weiterhin erlaubt, aber emissionsarm empfohlen.',
+    legal_basis: 'LRV Anhang 2 Ziff. 5',
+    effective_date: null,
+    notes: 'Emissionsfaktor 100% = Referenzwert. Reale NH3-Verluste bei Guelleausbringung ca. 15-25% des ausgebrachten NH4-N je nach Witterung.',
+  },
+  {
+    technique: 'Schleppschlauch',
+    emission_factor: 50,
+    requirement: 'Obligatorisch ab 1. Januar 2024 auf offener Ackerflaeche (LRV-Revision). Auf Gruenland empfohlen. Reduktion der Ammoniakemissionen um ca. 50% gegenueber Prallteller.',
+    legal_basis: 'LRV Anhang 2 Ziff. 5 (Revision 2022)',
+    effective_date: '2024-01-01',
+    notes: 'Schleppschlauch legt Guelle in Streifen auf den Boden. Weniger Oberflaechenkontakt = weniger NH3-Verlust. Kosten ca. 3-5 CHF/m3 Guelle Mehrkosten.',
+  },
+  {
+    technique: 'Schleppschuh',
+    emission_factor: 40,
+    requirement: 'Empfohlene emissionsarme Technik. Reduktion ca. 60% gegenueber Prallteller. Guelle wird zwischen Pflanzenreihen am Boden abgelegt.',
+    legal_basis: 'LRV Anhang 2 Ziff. 5',
+    effective_date: null,
+    notes: 'Besonders geeignet fuer Gruenland. Kosteneffizient ab ca. 200 ha Ausbringflaeche (Gemeinschaft/Lohnunternehmer).',
+  },
+  {
+    technique: 'Guelledrill / Injektion',
+    emission_factor: 10,
+    requirement: 'Beste verfuegbare Technik (BVT). Reduktion ca. 90% gegenueber Prallteller. Guelle wird direkt in den Boden eingebracht.',
+    legal_basis: 'LRV Anhang 2 Ziff. 5',
+    effective_date: null,
+    notes: 'Nur auf Ackerflaeche praktikabel (nicht auf Gruenland). Hohe Zugkraftanforderung. Hoehere Kosten, aber beste Emissionsminderung und Duengerwirkung.',
+  },
+  {
+    technique: 'Guellegrube — offen',
+    emission_factor: 100,
+    requirement: 'Referenz-Lagertechnik. Abdeckungspflicht fuer neue Guellgruben (LRV). Bestehende offene Gruben: kantonale Sanierungsfristen.',
+    legal_basis: 'LRV Anhang 2 Ziff. 5',
+    effective_date: null,
+    notes: 'NH3-Verluste bei offener Lagerung ca. 5-10% des Gesamt-N im Jahr. Schwimmschicht reduziert Emissionen teilweise.',
+  },
+  {
+    technique: 'Guellegrube — abgedeckt (fest)',
+    emission_factor: 20,
+    requirement: 'Feste Abdeckung (Betondeckel, Zeltdach) reduziert Emissionen um ca. 80%. Fuer Neuanlagen obligatorisch.',
+    legal_basis: 'LRV Anhang 2 Ziff. 5',
+    effective_date: null,
+    notes: 'Investitionskosten ca. 80-150 CHF/m2. Strukturverbesserungsbeitraege moeglich (SVV). Gleichzeitig Geruchsreduktion.',
+  },
+  {
+    technique: 'Guellegrube — Schwimmfolie',
+    emission_factor: 30,
+    requirement: 'Schwimmende Abdeckung (Folie, LECA-Kugeln, Stroh) als Nachruestung fuer bestehende offene Gruben. Reduktion ca. 70%.',
+    legal_basis: 'LRV Anhang 2 Ziff. 5',
+    effective_date: null,
+    notes: 'Kostenguenstige Nachruestung ca. 15-30 CHF/m2. Wartung erforderlich (Folienintegritaet pruefen). Stroh/LECA weniger effektiv als Folie.',
+  },
+  {
+    technique: 'Laufhof / Laufstall',
+    emission_factor: null,
+    requirement: 'Emissionsarme Stallboeden (Gummilaufflaechen, haeufige Entmistung, V-Rinnen, Quergefaelle). Agrammon-Modell berechnet stallspezifische Emissionen.',
+    legal_basis: 'LRV Anhang 2 Ziff. 5 / Agrammon',
+    effective_date: null,
+    notes: 'NH3-Emissionen stark abhaengig von Stalltyp, Entmistungshaeufigkeit und Lueftung. Agrammon-Eingabe beruecksichtigt individuelle Betriebsdaten. Neue Staelle: Emissionsarme Bauweise empfohlen.',
+  },
+  {
+    technique: 'Fuetterung — N-reduziert',
+    emission_factor: null,
+    requirement: 'Phasengerechte Fuetterung und N-angepasste Rationen reduzieren NH3 um 10-20%. Ressourceneffizienzbeitrag moeglich (DZV).',
+    legal_basis: 'DZV Art. 82 / LRV',
+    effective_date: null,
+    notes: 'N-reduzierte Fuetterung bei Schweinen: NPr-Futter senkt N-Ausscheidung um 15-20%. Bei Milchkuehen: Harnstoffgehalt in Milch als Indikator.',
+  },
+  {
+    technique: 'Weidegang',
+    emission_factor: null,
+    requirement: 'NH3-Emissionen bei Weidehaltung deutlich tiefer als bei Stallhaltung (Harn und Kot nicht konzentriert). Agrammon verrechnet Weideanteil.',
+    legal_basis: 'Agrammon-Modell',
+    effective_date: null,
+    notes: 'RAUS-Betriebe profitieren von tieferen berechneten NH3-Emissionen. Vollweide (z.B. saisonale Abkalbung) hat tiefste Stallemissionen.',
+  },
 ];
 
-// ---------------------------------------------------------------------------
-// 6. Insert data
-// ---------------------------------------------------------------------------
-
-console.log('Inserting crops...');
-const insertCrop = db.instance.prepare(
-  'INSERT OR REPLACE INTO crops (id, name, crop_group, typical_yield_t_ha, nutrient_offtake_n, nutrient_offtake_p2o5, nutrient_offtake_k2o, growth_stages, altitude_zone, jurisdiction) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+const insertAmmonia = db.instance.prepare(
+  `INSERT OR REPLACE INTO ammonia_rules (technique, emission_factor, requirement, legal_basis, effective_date, notes, jurisdiction, language)
+   VALUES (?, ?, ?, ?, ?, ?, 'CH', 'DE')`
 );
-for (const c of crops) {
-  insertCrop.run(c.id, c.name, c.crop_group, c.typical_yield_t_ha, c.nutrient_offtake_n, c.nutrient_offtake_p2o5, c.nutrient_offtake_k2o, JSON.stringify(c.growth_stages), c.altitude_zone, 'CH');
-}
-console.log(`  ${crops.length} crops inserted`);
 
-console.log('Inserting soil types...');
-const insertSoil = db.instance.prepare(
-  'INSERT OR REPLACE INTO soil_types (id, name, soil_group, texture, drainage_class, ph_class, description) VALUES (?, ?, ?, ?, ?, ?, ?)'
-);
-for (const s of soilTypes) {
-  insertSoil.run(s.id, s.name, s.soil_group, s.texture, s.drainage_class, s.ph_class, s.description);
+for (const a of ammoniaRules) {
+  insertAmmonia.run(a.technique, a.emission_factor, a.requirement, a.legal_basis, a.effective_date, a.notes);
 }
-console.log(`  ${soilTypes.length} soil types inserted`);
 
-console.log('Inserting nutrient recommendations...');
-const insertRec = db.instance.prepare(
-  'INSERT OR REPLACE INTO nutrient_recommendations (crop_id, soil_group, altitude_zone, previous_crop_group, n_rec_kg_ha, p_rec_kg_ha, k_rec_kg_ha, mg_rec_kg_ha, notes, grud_section, jurisdiction) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-);
-for (const r of nutrientRecs) {
-  insertRec.run(r.crop_id, r.soil_group, r.altitude_zone, r.previous_crop_group, r.n_rec_kg_ha, r.p_rec_kg_ha, r.k_rec_kg_ha, r.mg_rec_kg_ha, r.notes, r.grud_section, 'CH');
-}
-console.log(`  ${nutrientRecs.length} nutrient recommendations inserted`);
-
-console.log('Inserting manure values...');
-const insertManure = db.instance.prepare(
-  'INSERT OR REPLACE INTO manure_values (animal_category, housing_system, n_per_gve, p2o5_per_gve, k2o_per_gve, nh3_loss_pct, notes, jurisdiction) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-);
-for (const m of manureValues) {
-  insertManure.run(m.animal_category, m.housing_system, m.n_per_gve, m.p2o5_per_gve, m.k2o_per_gve, m.nh3_loss_pct, m.notes, 'CH');
-}
-console.log(`  ${manureValues.length} manure values inserted`);
-
-console.log('Inserting commodity prices...');
-const insertPrice = db.instance.prepare(
-  'INSERT OR REPLACE INTO commodity_prices (crop_id, market, price_per_tonne, currency, price_source, published_date, retrieved_at, source, jurisdiction) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-);
-for (const p of prices) {
-  insertPrice.run(p.crop_id, p.market, p.price_per_tonne, 'CHF', p.price_source, p.published_date, now, p.source, 'CH');
-}
-console.log(`  ${prices.length} prices inserted`);
+console.log(`Inserted ${ammoniaRules.length} ammonia rules`);
 
 // ---------------------------------------------------------------------------
-// 7. Build FTS5 index
+// 4. Biodiversitaetsfoerderflaechen (BFF) — DZV, OELN
 // ---------------------------------------------------------------------------
 
-console.log('Building FTS5 search index...');
-db.instance.exec('DELETE FROM search_index');
+interface BffType {
+  id: string;
+  name: string;
+  quality_level: string;
+  payment_chf_ha: number;
+  min_area_pct: number;
+  botanical_criteria: string;
+  notes: string;
+}
 
-// Index crops
-for (const c of crops) {
-  db.instance.prepare(
-    'INSERT INTO search_index (title, body, crop_group, jurisdiction) VALUES (?, ?, ?, ?)'
-  ).run(
-    c.name,
-    `${c.name} ${c.crop_group} Ertrag ${c.typical_yield_t_ha} t/ha N-Entzug ${c.nutrient_offtake_n} kg/ha P2O5 ${c.nutrient_offtake_p2o5} K2O ${c.nutrient_offtake_k2o} ${c.growth_stages.join(' ')} ${c.altitude_zone}`,
-    c.crop_group,
+const bffTypes: BffType[] = [
+  // QI types
+  {
+    id: 'extensiv-wiese-qi',
+    name: 'Extensiv genutzte Wiese',
+    quality_level: 'QI',
+    payment_chf_ha: 450,
+    min_area_pct: 7,
+    botanical_criteria: 'Keine Duengung. Erste Mahd ab 15. Juni (Talzone). Keine Herbizide.',
+    notes: 'Haeufigster BFF-Typ. Mindestens 7% der LN als BFF (inkl. alle BFF-Typen). Talzone: 450 CHF/ha, Huegelzone/BZ: hoeher.',
+  },
+  {
+    id: 'wenig-intensiv-wiese-qi',
+    name: 'Wenig intensiv genutzte Wiese',
+    quality_level: 'QI',
+    payment_chf_ha: 300,
+    min_area_pct: 0,
+    botanical_criteria: 'Maessige Duengung erlaubt (max. 1 Duengergabe Hofdunger). Erste Mahd ab 15. Juni.',
+    notes: 'Uebergangsstufe zwischen intensiv und extensiv. Geringerer Beitrag als extensiv.',
+  },
+  {
+    id: 'streuflaeche-qi',
+    name: 'Streuflaeche',
+    quality_level: 'QI',
+    payment_chf_ha: 450,
+    min_area_pct: 0,
+    botanical_criteria: 'Keine Duengung. Mahd ab 1. September. Streue muss abgefuehrt werden.',
+    notes: 'Typisch in Riedgebieten, Flachmooren. Wichtig fuer Amphibien und seltene Pflanzen.',
+  },
+  {
+    id: 'hecke-qi',
+    name: 'Hecke, Feld- und Ufergehoelz',
+    quality_level: 'QI',
+    payment_chf_ha: 1700,
+    min_area_pct: 0,
+    botanical_criteria: 'Mindestens 5 einheimische Straucharten. Mindestbreite 2m. Pflege: sektionsweise alle 5-8 Jahre auf den Stock setzen.',
+    notes: 'Mit Krautsaum (3m) beidseitig. Wichtiger Lebensraum fuer Voegel und Kleinsaeuger. Vernetzungselement.',
+  },
+  {
+    id: 'buntbrache-qi',
+    name: 'Buntbrache',
+    quality_level: 'QI',
+    payment_chf_ha: 3800,
+    min_area_pct: 0,
+    botanical_criteria: 'Einsaat empfohlener Saatmischung (ca. 30 Arten). Mindeststandzeit 2 Jahre. Keine Duengung, keine PSM. Mindestgroesse 5 Aren.',
+    notes: 'Hoechster Beitrag aller BFF-Typen auf Ackerflaeche. Anrechenbar an 3.5% BFF auf Ackerflaeche. Wichtig fuer Feldlerche, Feldhase.',
+  },
+  {
+    id: 'rotationsbrache-qi',
+    name: 'Rotationsbrache',
+    quality_level: 'QI',
+    payment_chf_ha: 3300,
+    min_area_pct: 0,
+    botanical_criteria: 'Einsaat empfohlener Mischung. Standzeit 1-3 Jahre (kuerzere Rotation als Buntbrache). Keine Duengung, keine PSM.',
+    notes: 'Flexibler als Buntbrache. Anrechenbar an 3.5% BFF auf Ackerflaeche.',
+  },
+  {
+    id: 'saum-ackerflaeche-qi',
+    name: 'Saum auf Ackerflaeche',
+    quality_level: 'QI',
+    payment_chf_ha: 3300,
+    min_area_pct: 0,
+    botanical_criteria: 'Streifen entlang Feldraendern (3-12m breit). Einsaat empfohlener Mischung. Keine Duengung, keine PSM. Mindeststandzeit 2 Jahre.',
+    notes: 'Ergaenzt Bunt-/Rotationsbrache. Strukturelement am Feldrand.',
+  },
+  {
+    id: 'nuetzlingsstreifen-qi',
+    name: 'Nuetzlingsstreifen',
+    quality_level: 'QI',
+    payment_chf_ha: 3300,
+    min_area_pct: 0,
+    botanical_criteria: 'Streifen in oder am Rand von Ackerkulturen (3-5m breit). Empfohlene Mischung mit Blutenpflanzen. Keine PSM, keine Duengung. Jaehrliche Neuansaat moeglich.',
+    notes: 'Foerdert Nuetzlinge (Schwebfliegen, Marienkaefer, Schlupfwespen). Seit 2023 als BFF-Typ anerkannt.',
+  },
+  {
+    id: 'bluehstreifen-qi',
+    name: 'Bluehstreifen fuer Bestaeubende und andere Nuetzlinge',
+    quality_level: 'QI',
+    payment_chf_ha: 3300,
+    min_area_pct: 0,
+    botanical_criteria: 'Empfohlene Bluehstreifenmischung. 3-12m breit. Keine PSM, keine Duengung. Mindeststandzeit 100 Tage.',
+    notes: 'Neuer BFF-Typ (DZV-Revision). Foerdert Wildbienen und andere Bestaeubende.',
+  },
+  {
+    id: 'hochstamm-feldobst-qi',
+    name: 'Hochstamm-Feldobstbaeume',
+    quality_level: 'QI',
+    payment_chf_ha: 0,
+    min_area_pct: 0,
+    botanical_criteria: 'Stammhoehe mindestens 1.6m (Steinobst) bzw. 1.2m (Kernobst). Einzelbaum-Beitrag. Mindestabstand 10m. Schnitt alle 5 Jahre.',
+    notes: 'Beitrag pro Baum (15 CHF/Baum QI). Wichtig fuer Steinkauz, Gartenrotschwanz. Max. 100 Baeume pro ha anrechenbar.',
+  },
+
+  // QII types — Qualitaetsstufe II (botanische Qualitaet + Vernetzung)
+  {
+    id: 'extensiv-wiese-qii',
+    name: 'Extensiv genutzte Wiese',
+    quality_level: 'QII',
+    payment_chf_ha: 1520,
+    min_area_pct: 0,
+    botanical_criteria: 'Mindestens 6 von ca. 30 regionsspezifischen Indikatorpflanzen nachgewiesen. Kontrolle durch kantonale Fachstelle oder delegierte Organisation. Indikatorpflanzen z.B.: Margerite, Salbei, Esparsette, Wiesenflockenblume, Knolliger Hahnenfuss, Aufrechte Trespe.',
+    notes: 'QII-Beitrag: 1520 CHF/ha total (= QI 450 + QII-Zuschlag 1070). Hoechster Flaechenanteil der QII-Flaechen.',
+  },
+  {
+    id: 'wenig-intensiv-wiese-qii',
+    name: 'Wenig intensiv genutzte Wiese',
+    quality_level: 'QII',
+    payment_chf_ha: 1020,
+    min_area_pct: 0,
+    botanical_criteria: 'Mindestens 6 Indikatorpflanzen (analog extensiv, aber angepasste Artenliste fuer Fettwiesen).',
+    notes: 'QII-Beitrag: 1020 CHF/ha total (= QI 300 + QII-Zuschlag 720).',
+  },
+  {
+    id: 'streuflaeche-qii',
+    name: 'Streuflaeche',
+    quality_level: 'QII',
+    payment_chf_ha: 1370,
+    min_area_pct: 0,
+    botanical_criteria: 'Mindestens 6 Indikatorpflanzen (spezifische Riedarten: Seggen, Wollgras, Mehlprimel, Sumpfdotterblume).',
+    notes: 'QII-Beitrag: 1370 CHF/ha total (= QI 450 + QII-Zuschlag 920). Hochwertige Flachmoore.',
+  },
+  {
+    id: 'hecke-qii',
+    name: 'Hecke, Feld- und Ufergehoelz',
+    quality_level: 'QII',
+    payment_chf_ha: 2050,
+    min_area_pct: 0,
+    botanical_criteria: 'Mindestens 5 Straucharten, davon min. 3 dornentragend. Totholzanteil. Gepflegter Krautsaum mit Indikatorarten.',
+    notes: 'QII-Beitrag: 2050 CHF/ha total (= QI 1700 + QII-Zuschlag 350). Dornenstraeucher wichtig fuer Neuntoeter.',
+  },
+  {
+    id: 'hochstamm-feldobst-qii',
+    name: 'Hochstamm-Feldobstbaeume',
+    quality_level: 'QII',
+    payment_chf_ha: 0,
+    min_area_pct: 0,
+    botanical_criteria: 'Mindestens 10 Hochstammbaeume pro ha, mindestens 2 Sorten. Unternutzung als QII-Wiese oder -Weide.',
+    notes: 'Beitrag pro Baum (30 CHF/Baum QII). Vernetzung: Obstgarten im Vernetzungsperimeter.',
+  },
+  {
+    id: 'vernetzung',
+    name: 'Vernetzungsbeitrag',
+    quality_level: 'QI',
+    payment_chf_ha: 1000,
+    min_area_pct: 0,
+    botanical_criteria: 'BFF-Flaeche liegt in einem kantonalen Vernetzungsprojekt. Lage, Typ und Pflege gemaess Vernetzungskonzept. Zielarten definiert.',
+    notes: 'Zusaetzlich zu QI/QII-Beitraegen. Kantonale Vernetzungsprojekte mit Leitarten (z.B. Feldlerche, Neuntoeter). Max. 1000 CHF/ha.',
+  },
+
+  // BFF minimum requirements
+  {
+    id: 'bff-minimum-ln',
+    name: 'Mindestanteil BFF auf LN',
+    quality_level: 'QI',
+    payment_chf_ha: 0,
+    min_area_pct: 7,
+    botanical_criteria: 'Mindestens 7% der landwirtschaftlichen Nutzflaeche (LN) als BFF (alle BFF-Typen zusammen).',
+    notes: 'OELN-Pflicht. Gilt fuer alle Betriebe mit Direktzahlungen. Spezialkulturen: 3.5% auf offener Ackerflaeche.',
+  },
+  {
+    id: 'bff-minimum-acker',
+    name: 'Mindestanteil BFF auf Ackerflaeche',
+    quality_level: 'QI',
+    payment_chf_ha: 0,
+    min_area_pct: 3.5,
+    botanical_criteria: 'Ab 2024: Mindestens 3.5% der offenen Ackerflaeche als BFF (Buntbrache, Rotationsbrache, Saum, Nuetzlingsstreifen, Bluehstreifen).',
+    notes: 'Neue Anforderung ab 2024 (Pa.Iv. 19.475). Vorher nur 7% auf gesamter LN. Ackerflaechen-BFF haben hohe oekologische Wirkung.',
+  },
+];
+
+const insertBff = db.instance.prepare(
+  `INSERT OR REPLACE INTO bff_types (id, name, quality_level, payment_chf_ha, min_area_pct, botanical_criteria, notes, jurisdiction, language)
+   VALUES (?, ?, ?, ?, ?, ?, ?, 'CH', 'DE')`
+);
+
+for (const b of bffTypes) {
+  insertBff.run(b.id, b.name, b.quality_level, b.payment_chf_ha, b.min_area_pct, b.botanical_criteria, b.notes);
+}
+
+console.log(`Inserted ${bffTypes.length} BFF types`);
+
+// ---------------------------------------------------------------------------
+// 5. Naehrstoffverlust-Absenkpfad — Pa.Iv. 19.475, LwG Art. 6a
+// ---------------------------------------------------------------------------
+
+interface NutrientLossLimit {
+  nutrient: string;
+  year: number;
+  limit_pct: number;
+  target: string;
+  legal_basis: string;
+  notes: string;
+}
+
+const nutrientLossLimits: NutrientLossLimit[] = [
+  // Stickstoff (N)
+  {
+    nutrient: 'N',
+    year: 2023,
+    limit_pct: 0,
+    target: 'Referenzjahr (Durchschnitt 2014-2016)',
+    legal_basis: 'LwG Art. 6a (Pa.Iv. 19.475)',
+    notes: 'Basiswert: Durchschnitt der Stickstoffverluste 2014-2016.',
+  },
+  {
+    nutrient: 'N',
+    year: 2025,
+    limit_pct: 10,
+    target: '-10% Stickstoffverluste gegenueber Referenz',
+    legal_basis: 'LwG Art. 6a (Pa.Iv. 19.475)',
+    notes: 'Zwischenziel. Verschaerfte Suisse-Bilanz: Toleranzgrenze N sinkt auf 105% (vorher 110%).',
+  },
+  {
+    nutrient: 'N',
+    year: 2027,
+    limit_pct: 15,
+    target: '-15% Stickstoffverluste gegenueber Referenz',
+    legal_basis: 'LwG Art. 6a (Pa.Iv. 19.475)',
+    notes: 'Zwischenziel. Bei Nichterreichen: Verschaerfung der Massnahmen durch Bundesrat.',
+  },
+  {
+    nutrient: 'N',
+    year: 2030,
+    limit_pct: 20,
+    target: '-20% Stickstoffverluste gegenueber Referenz',
+    legal_basis: 'LwG Art. 6a (Pa.Iv. 19.475)',
+    notes: 'Endziel. Massnahmen: emissionsarme Ausbringung, N-angepasste Fuetterung, optimierte Hofdungerlagerung, reduzierte Mineraldungermengen.',
+  },
+  // Phosphor (P)
+  {
+    nutrient: 'P',
+    year: 2023,
+    limit_pct: 0,
+    target: 'Referenzjahr (Durchschnitt 2014-2016)',
+    legal_basis: 'LwG Art. 6a (Pa.Iv. 19.475)',
+    notes: 'Basiswert: Durchschnitt der Phosphorverluste 2014-2016.',
+  },
+  {
+    nutrient: 'P',
+    year: 2025,
+    limit_pct: 10,
+    target: '-10% Phosphorverluste gegenueber Referenz',
+    legal_basis: 'LwG Art. 6a (Pa.Iv. 19.475)',
+    notes: 'Zwischenziel. Suisse-Bilanz P-Toleranz bleibt bei 100% (war bereits strenger als N).',
+  },
+  {
+    nutrient: 'P',
+    year: 2027,
+    limit_pct: 15,
+    target: '-15% Phosphorverluste gegenueber Referenz',
+    legal_basis: 'LwG Art. 6a (Pa.Iv. 19.475)',
+    notes: 'Zwischenziel. Erosionsschutz und Pufferstreifen als Hauptmassnahmen.',
+  },
+  {
+    nutrient: 'P',
+    year: 2030,
+    limit_pct: 20,
+    target: '-20% Phosphorverluste gegenueber Referenz',
+    legal_basis: 'LwG Art. 6a (Pa.Iv. 19.475)',
+    notes: 'Endziel. Massnahmen: Bodenschutz, Pufferstreifen, Abflussverhinderung, P-effiziente Fuetterung.',
+  },
+];
+
+const insertNutrientLoss = db.instance.prepare(
+  `INSERT OR REPLACE INTO nutrient_loss_limits (nutrient, year, limit_pct, target, legal_basis, notes, jurisdiction, language)
+   VALUES (?, ?, ?, ?, ?, ?, 'CH', 'DE')`
+);
+
+for (const l of nutrientLossLimits) {
+  insertNutrientLoss.run(l.nutrient, l.year, l.limit_pct, l.target, l.legal_basis, l.notes);
+}
+
+console.log(`Inserted ${nutrientLossLimits.length} nutrient loss limits`);
+
+// ---------------------------------------------------------------------------
+// 6. Environmental Rules — UVP, VBBo, general rules
+// ---------------------------------------------------------------------------
+
+interface EnvironmentalRule {
+  topic: string;
+  rule: string;
+  authority: string;
+  legal_basis: string;
+  threshold: string | null;
+  notes: string;
+}
+
+const environmentalRules: EnvironmentalRule[] = [
+  // UVP — Umweltvertraeglichkeitspruefung
+  {
+    topic: 'UVP',
+    rule: 'UVP-Pflicht Schweinehaltung',
+    authority: 'Kanton (Bau- und Umweltamt)',
+    legal_basis: 'UVPV Anhang Ziff. 80.4',
+    threshold: 'Ab 500 Mastschweinplaetze oder 150 Zuchtsauenplaetze',
+    notes: 'Schwellenwerte kantonal leicht abweichend. UVP-Bericht durch anerkanntes Buero. Kosten ca. 20,000-50,000 CHF.',
+  },
+  {
+    topic: 'UVP',
+    rule: 'UVP-Pflicht Gefluegelhaltung',
+    authority: 'Kanton (Bau- und Umweltamt)',
+    legal_basis: 'UVPV Anhang Ziff. 80.4',
+    threshold: 'Ab 10,000 Legehennenplaetze oder 20,000 Mastpouletplaetze',
+    notes: 'Grosse Gefluegelbetriebe. Emissionen (NH3, Staub, Geruch) im Fokus.',
+  },
+  {
+    topic: 'UVP',
+    rule: 'UVP-Pflicht Rindviehhaltung',
+    authority: 'Kanton (Bau- und Umweltamt)',
+    legal_basis: 'UVPV Anhang Ziff. 80.4',
+    threshold: 'Ab ca. 150-200 GVE Rindvieh (kantonal unterschiedlich)',
+    notes: 'Kantonale Schwellenwerte variieren stark. Einige Kantone: UVP ab 150 GVE, andere ab 200 GVE.',
+  },
+  {
+    topic: 'UVP',
+    rule: 'UVP-Pflicht Biogasanlage',
+    authority: 'Kanton (Bau- und Umweltamt)',
+    legal_basis: 'UVPV Anhang Ziff. 21',
+    threshold: 'Ab 5,000 t Jahreskapazitaet Substrat',
+    notes: 'Landwirtschaftliche Biogasanlagen. Co-Substrate (Abfaelle) erhoehen UVP-Wahrscheinlichkeit.',
+  },
+  {
+    topic: 'UVP',
+    rule: 'UVP-Pflicht Gewaesserverbauung und Melioration',
+    authority: 'Kanton (Tiefbauamt / Umweltamt)',
+    legal_basis: 'UVPV Anhang Ziff. 30.2 / 80.3',
+    threshold: 'Gueterzusammenlegungen ab 400 ha, groessere Gewaesserverbauungen',
+    notes: 'Meliorationen und Gueterzusammenlegungen. Auch Drainageprojekte ab gewisser Groesse.',
+  },
+
+  // VBBo — Schwermetall-Richtwerte
+  {
+    topic: 'VBBo',
+    rule: 'Richtwert Cadmium (Cd) im Boden',
+    authority: 'BAFU / kantonale Fachstelle Bodenschutz',
+    legal_basis: 'VBBo Art. 8 / Anhang 1',
+    threshold: 'Richtwert 0.8 mg Cd/kg TS',
+    notes: 'Bei Ueberschreitung: Nutzungseinschraenkungen fuer Nahrungsmittelpflanzen. Sanierungswert: 2 mg/kg. Quellen: Mineraldunger (Phosphatduenger), Klaerschlamm (seit 2006 verboten).',
+  },
+  {
+    topic: 'VBBo',
+    rule: 'Richtwert Kupfer (Cu) im Boden',
+    authority: 'BAFU / kantonale Fachstelle Bodenschutz',
+    legal_basis: 'VBBo Art. 8 / Anhang 1',
+    threshold: 'Richtwert 40 mg Cu/kg TS',
+    notes: 'Bei Ueberschreitung: Einschraenkung Hofdungerausbringung. Sanierungswert: 150 mg/kg. Quellen: Kupferspritzmittel (Rebbau, Obstbau), Schweineguelle.',
+  },
+  {
+    topic: 'VBBo',
+    rule: 'Richtwert Zink (Zn) im Boden',
+    authority: 'BAFU / kantonale Fachstelle Bodenschutz',
+    legal_basis: 'VBBo Art. 8 / Anhang 1',
+    threshold: 'Richtwert 150 mg Zn/kg TS',
+    notes: 'Bei Ueberschreitung: Duengungs-Einschraenkungen. Sanierungswert: 300 mg/kg. Quellen: Schweineguelle (Zink als Futterzusatz), Klaerschlamm.',
+  },
+  {
+    topic: 'VBBo',
+    rule: 'Richtwert Blei (Pb) im Boden',
+    authority: 'BAFU / kantonale Fachstelle Bodenschutz',
+    legal_basis: 'VBBo Art. 8 / Anhang 1',
+    threshold: 'Richtwert 50 mg Pb/kg TS',
+    notes: 'Bei Ueberschreitung: Nutzungseinschraenkungen fuer Gemuese. Sanierungswert: 200 mg/kg. Quellen: historisch (verbleites Benzin), Altlasten.',
+  },
+  {
+    topic: 'VBBo',
+    rule: 'Massnahmen bei Ueberschreitung Richtwerte',
+    authority: 'Kantonale Fachstelle Bodenschutz',
+    legal_basis: 'VBBo Art. 9-10',
+    threshold: null,
+    notes: 'Stufenmodell: (1) Richtwert ueberschritten = vertiefte Abklaerung, (2) Pruefwert ueberschritten = Gefaehrdungsabschaetzung, (3) Sanierungswert ueberschritten = Nutzungseinschraenkung/Sanierung. Bodenanalyse alle 10-15 Jahre empfohlen.',
+  },
+
+  // Gewaesserraum
+  {
+    topic: 'Gewaesserschutz',
+    rule: 'Gewaesserraum — Mindestbreite',
+    authority: 'Kanton (Tiefbauamt / Umweltamt)',
+    legal_basis: 'GSchG Art. 36a / GSchV Art. 41a-41c',
+    threshold: null,
+    notes: 'Kantone legen Gewaesserraum fest: Mindestbreite 11m bei Fliessgewaessern, mehr bei groesseren Gewaessern. Im Gewaesserraum: keine Bauten, keine Duengung, extensive Bewirtschaftung. Entschaedigung moeglich.',
+  },
+  {
+    topic: 'Gewaesserschutz',
+    rule: 'Hofdungerannahmevertrag',
+    authority: 'Kanton (Amt fuer Landwirtschaft)',
+    legal_basis: 'DZV Art. 24 / GSchG',
+    threshold: null,
+    notes: 'Pflicht bei Hofdungerabgabe und -aufnahme zwischen Betrieben. Vertrag muss Menge, Naehrstoffgehalt und Abgabe-/Annahmezeitpunkt enthalten. Kantonale Meldepflicht (HODUFLU-System).',
+  },
+  {
+    topic: 'Gewaesserschutz',
+    rule: 'Lagerkapazitaet Hofdunger',
+    authority: 'BAFU / Kanton',
+    legal_basis: 'GSchV Anhang 2 Ziff. 23',
+    threshold: 'Mindestens 5 Monate Lagerkapazitaet (Talzone), 6 Monate (Bergzone)',
+    notes: 'Ausreichende Lagerkapazitaet verhindert Ausbringung bei unguenstigen Bedingungen (Frost, Naesse, Sommer). Einige Kantone verlangen mehr (z.B. LU: 6 Monate Talzone).',
+  },
+  {
+    topic: 'Gewaesserschutz',
+    rule: 'Ausbringverbot Hofdunger',
+    authority: 'Kanton',
+    legal_basis: 'ChemRRV Anhang 2.6 Ziff. 3.2.1',
+    threshold: null,
+    notes: 'Kein Hofdunger auf wassergesaettigte, gefrorene, schneebedeckte oder ausgetrocknete Boeden. Sommersperrfrist: einige Kantone verbieten Ausbringung im Sommer bei hohen Temperaturen.',
+  },
+
+  // Allgemeine Umweltregeln
+  {
+    topic: 'Erosionsschutz',
+    rule: 'Angemessener Bodenschutz (OELN)',
+    authority: 'BLW / Kanton',
+    legal_basis: 'DZV Anhang 1 Ziff. 5 (OELN)',
+    threshold: null,
+    notes: 'OELN-Anforderung: Erosionsschutzmassnahmen auf erosionsgefaehrdeten Flaechen (>2t/ha/Jahr Bodenabtrag). Massnahmen: Mulchsaat, Begruenung, Untersaat, Hangquerbearbeitung, Pufferstreifen.',
+  },
+  {
+    topic: 'PSM-Gewaesserschutz',
+    rule: 'Aktionsplan Pflanzenschutzmittel — 50% Risikoreduktion',
+    authority: 'BLW / BAFU',
+    legal_basis: 'Aktionsplan PSM (Bundesrat 2017)',
+    threshold: '50% Risikoreduktion fuer Oberflaechengewaesser und Grundwasser bis 2027',
+    notes: 'Massnahmen: PSM-freie Pufferstreifen, Abdriftminderungstechnik, Reduktion besonders gewaessertoxischer Wirkstoffe, Foerderung biologischer Alternativen.',
+  },
+];
+
+const insertRule = db.instance.prepare(
+  `INSERT OR REPLACE INTO environmental_rules (topic, rule, authority, legal_basis, threshold, notes, jurisdiction, language)
+   VALUES (?, ?, ?, ?, ?, ?, 'CH', 'DE')`
+);
+
+for (const r of environmentalRules) {
+  insertRule.run(r.topic, r.rule, r.authority, r.legal_basis, r.threshold, r.notes);
+}
+
+console.log(`Inserted ${environmentalRules.length} environmental rules`);
+
+// ---------------------------------------------------------------------------
+// 7. FTS5 Search Index — populate from all tables
+// ---------------------------------------------------------------------------
+
+db.run('DELETE FROM search_index');
+
+// Water protection zones
+const wpzRows = db.all<{ zone_type: string; name: string; restrictions: string; description: string }>(
+  'SELECT zone_type, name, restrictions, description FROM water_protection_zones'
+);
+const insertFts = db.instance.prepare(
+  'INSERT INTO search_index (title, body, topic, jurisdiction) VALUES (?, ?, ?, ?)'
+);
+
+for (const z of wpzRows) {
+  insertFts.run(
+    `Grundwasserschutzzone ${z.zone_type} — ${z.name}`,
+    `${z.restrictions} ${z.description}`,
+    'Gewaesserschutz',
     'CH'
   );
 }
 
-// Index soil types
-for (const s of soilTypes) {
-  db.instance.prepare(
-    'INSERT INTO search_index (title, body, crop_group, jurisdiction) VALUES (?, ?, ?, ?)'
-  ).run(
-    s.name,
-    `${s.name} Bodengruppe ${s.soil_group} Textur ${s.texture} Drainage ${s.drainage_class} pH-Klasse ${s.ph_class} ${s.description}`,
-    'boden',
+// Buffer zones
+const bzRows = db.all<{ type: string; distance_m: number; requirement: string; notes: string }>(
+  'SELECT type, distance_m, requirement, notes FROM buffer_zones'
+);
+for (const b of bzRows) {
+  insertFts.run(
+    `Pufferstreifen ${b.type} (${b.distance_m}m)`,
+    `${b.requirement} ${b.notes ?? ''}`,
+    'Pufferstreifen',
     'CH'
   );
 }
 
-// Index nutrient recs
-for (const r of nutrientRecs) {
-  const crop = crops.find(c => c.id === r.crop_id);
-  db.instance.prepare(
-    'INSERT INTO search_index (title, body, crop_group, jurisdiction) VALUES (?, ?, ?, ?)'
-  ).run(
-    `GRUD Empfehlung ${crop?.name ?? r.crop_id}`,
-    `${crop?.name ?? r.crop_id} Bodengruppe ${r.soil_group} ${r.altitude_zone} N ${r.n_rec_kg_ha} P ${r.p_rec_kg_ha} K ${r.k_rec_kg_ha} Mg ${r.mg_rec_kg_ha} ${r.notes}`,
-    crop?.crop_group ?? 'empfehlung',
+// Ammonia rules
+const arRows = db.all<{ technique: string; requirement: string; notes: string }>(
+  'SELECT technique, requirement, notes FROM ammonia_rules'
+);
+for (const a of arRows) {
+  insertFts.run(
+    `Ammoniakemissionen — ${a.technique}`,
+    `${a.requirement} ${a.notes ?? ''}`,
+    'Ammoniak',
     'CH'
   );
 }
 
-// Index manure values
-for (const m of manureValues) {
-  db.instance.prepare(
-    'INSERT INTO search_index (title, body, crop_group, jurisdiction) VALUES (?, ?, ?, ?)'
-  ).run(
-    `Hofduenger ${m.animal_category} ${m.housing_system}`,
-    `${m.animal_category} ${m.housing_system} N ${m.n_per_gve} P2O5 ${m.p2o5_per_gve} K2O ${m.k2o_per_gve} NH3-Verlust ${m.nh3_loss_pct}% ${m.notes}`,
-    'hofduenger',
+// BFF types
+const bffRows = db.all<{ name: string; quality_level: string; botanical_criteria: string; notes: string }>(
+  'SELECT name, quality_level, botanical_criteria, notes FROM bff_types'
+);
+for (const b of bffRows) {
+  insertFts.run(
+    `BFF ${b.quality_level} — ${b.name}`,
+    `${b.botanical_criteria} ${b.notes ?? ''}`,
+    'BFF',
     'CH'
   );
 }
 
-console.log('FTS5 index built');
+// Nutrient loss limits
+const nllRows = db.all<{ nutrient: string; year: number; target: string; notes: string }>(
+  'SELECT nutrient, year, target, notes FROM nutrient_loss_limits'
+);
+for (const l of nllRows) {
+  insertFts.run(
+    `Absenkpfad ${l.nutrient} ${l.year}`,
+    `${l.target} ${l.notes ?? ''}`,
+    'Naehrstoffe',
+    'CH'
+  );
+}
+
+// Environmental rules
+const erRows = db.all<{ topic: string; rule: string; legal_basis: string; notes: string }>(
+  'SELECT topic, rule, legal_basis, notes FROM environmental_rules'
+);
+for (const r of erRows) {
+  insertFts.run(
+    r.rule,
+    `${r.legal_basis} ${r.notes ?? ''}`,
+    r.topic,
+    'CH'
+  );
+}
+
+const ftsCount = db.get<{ count: number }>('SELECT COUNT(*) as count FROM search_index');
+console.log(`FTS5 index rebuilt: ${ftsCount?.count ?? 0} entries`);
 
 // ---------------------------------------------------------------------------
-// 8. Update metadata
+// 8. Metadata
 // ---------------------------------------------------------------------------
 
-db.instance.prepare('INSERT OR REPLACE INTO db_metadata (key, value) VALUES (?, ?)').run('last_ingest', now);
-db.instance.prepare('INSERT OR REPLACE INTO db_metadata (key, value) VALUES (?, ?)').run('build_date', now);
-console.log(`Metadata updated: last_ingest=${now}`);
+db.run(`INSERT OR REPLACE INTO db_metadata (key, value) VALUES ('last_ingest', ?)`, [now]);
+db.run(`INSERT OR REPLACE INTO db_metadata (key, value) VALUES ('build_date', ?)`, [now]);
+db.run(`INSERT OR REPLACE INTO db_metadata (key, value) VALUES ('schema_version', '1.0')`, []);
 
 // ---------------------------------------------------------------------------
-// 9. Write coverage.json
+// 9. Coverage JSON + sources YAML
 // ---------------------------------------------------------------------------
 
 const coverage = {
-  server: 'ch-crop-nutrients-mcp',
+  server: 'ch-environmental-compliance-mcp',
   jurisdiction: 'CH',
   version: '0.1.0',
   last_ingest: now,
   data: {
-    crops: crops.length,
-    soil_types: soilTypes.length,
-    nutrient_recommendations: nutrientRecs.length,
-    manure_values: manureValues.length,
-    commodity_prices: prices.length,
+    water_protection_zones: waterProtectionZones.length,
+    buffer_zones: bufferZones.length,
+    ammonia_rules: ammoniaRules.length,
+    bff_types: bffTypes.length,
+    nutrient_loss_limits: nutrientLossLimits.length,
+    environmental_rules: environmentalRules.length,
+    fts_entries: ftsCount?.count ?? 0,
   },
   tools: 11,
-  sources: ['GRUD 2017 (Agroscope)', 'Suisse-Bilanz Wegleitung (BLW)', 'AGRIDEA', 'SBV/swiss granum'],
+  sources: [
+    'BAFU — GSchG/GSchV (Gewaesserschutz)',
+    'BAFU — LRV (Luftreinhaltung, Ammoniak)',
+    'BLW — DZV (BFF, OELN)',
+    'Agroscope — Agrammon (Emissionsfaktoren)',
+    'Parlament — Pa.Iv. 19.475 (Absenkpfad)',
+    'BAFU — VBBo (Bodenbelastung)',
+  ],
 };
 
-writeFileSync('data/coverage.json', JSON.stringify(coverage, null, 2));
-console.log('Coverage written to data/coverage.json');
+writeFileSync('data/coverage.json', JSON.stringify(coverage, null, 2) + '\n');
 
-// ---------------------------------------------------------------------------
-// 10. Write sources.yml
-// ---------------------------------------------------------------------------
-
-const sourcesYml = `# Data sources for ch-crop-nutrients-mcp
+const sourcesYml = `# Data sources for ch-environmental-compliance-mcp
 sources:
-  - name: GRUD 2017
-    authority: Agroscope
-    url: https://www.agroscope.admin.ch/agroscope/de/home/themen/pflanzenbau/duengung.html
+  - name: Gewaesserschutzgesetz (GSchG) / Gewaesserschutzverordnung (GSchV)
+    authority: BAFU (Bundesamt fuer Umwelt)
+    url: https://www.bafu.admin.ch/bafu/de/home/themen/wasser/fachinformationen/gewaesserschutz.html
     license: Swiss Federal Administration — free reuse
-    update_frequency: periodic (major revision ~10 years)
+    update_frequency: periodic (amendments as enacted)
     last_retrieved: "${now}"
 
-  - name: Suisse-Bilanz Wegleitung
-    authority: Bundesamt fuer Landwirtschaft (BLW)
-    url: https://www.blw.admin.ch/blw/de/home/instrumente/direktzahlungen/oekologischer-leistungsnachweis.html
+  - name: Luftreinhalte-Verordnung (LRV) / Agrammon
+    authority: BAFU / Agroscope
+    url: https://www.bafu.admin.ch/bafu/de/home/themen/luft/fachinformationen/luftschadstoffquellen/emissionen-der-landwirtschaft.html
     license: Swiss Federal Administration — free reuse
-    update_frequency: annual (with DZV updates)
+    update_frequency: periodic (Agrammon model updates)
     last_retrieved: "${now}"
 
-  - name: swiss granum Richtpreise
-    authority: swiss granum / SBV
-    url: https://www.swissgranum.ch/richtpreise
-    license: Public price information
-    update_frequency: annual (harvest season)
+  - name: Direktzahlungsverordnung (DZV) — BFF und OELN
+    authority: BLW (Bundesamt fuer Landwirtschaft)
+    url: https://www.blw.admin.ch/blw/de/home/instrumente/direktzahlungen/biodiversitaetsbeitraege.html
+    license: Swiss Federal Administration — free reuse
+    update_frequency: annual (DZV revisions)
     last_retrieved: "${now}"
 
-  - name: swisspatat Richtpreise
-    authority: swisspatat
-    url: https://www.swisspatat.ch
-    license: Public price information
-    update_frequency: seasonal
+  - name: Pa.Iv. 19.475 — Absenkpfad Naehrstoffverluste
+    authority: Parlament / BLW
+    url: https://www.blw.admin.ch/blw/de/home/nachhaltige-produktion/umwelt/naehrstoffe.html
+    license: Swiss Federal Administration — free reuse
+    update_frequency: annual targets through 2030
+    last_retrieved: "${now}"
+
+  - name: VBBo — Verordnung ueber Belastungen des Bodens
+    authority: BAFU
+    url: https://www.bafu.admin.ch/bafu/de/home/themen/boden/fachinformationen/bodenschutz.html
+    license: Swiss Federal Administration — free reuse
+    update_frequency: periodic
     last_retrieved: "${now}"
 `;
 
 writeFileSync('data/sources.yml', sourcesYml);
-console.log('Sources written to data/sources.yml');
+
+console.log('\nIngestion complete:');
+console.log(`  Water protection zones: ${waterProtectionZones.length}`);
+console.log(`  Buffer zone rules: ${bufferZones.length}`);
+console.log(`  Ammonia rules: ${ammoniaRules.length}`);
+console.log(`  BFF types: ${bffTypes.length}`);
+console.log(`  Nutrient loss limits: ${nutrientLossLimits.length}`);
+console.log(`  Environmental rules: ${environmentalRules.length}`);
+console.log(`  FTS5 entries: ${ftsCount?.count ?? 0}`);
+console.log(`  Coverage: data/coverage.json`);
+console.log(`  Sources: data/sources.yml`);
 
 db.close();
-console.log('\\nIngestion complete.');
