@@ -1,4 +1,5 @@
 import { buildMeta } from '../metadata.js';
+import { buildCitation } from '../citation.js';
 import { validateJurisdiction } from '../jurisdiction.js';
 import type { Database } from '../db.js';
 
@@ -43,6 +44,12 @@ export function handleGetWaterProtectionZones(db: Database, args: WaterProtectio
       description: z.description,
       legal_basis: z.legal_basis,
     })),
+    _citation: buildCitation(
+      'CH Water Protection',
+      'Gewässerschutzzonen',
+      'get_water_protection_zones',
+      { ...(args.zone_type ? { zone_type: args.zone_type } : {}) },
+    ),
     _meta: buildMeta({
       source_url: 'https://www.bafu.admin.ch/bafu/de/home/themen/wasser/fachinformationen/gewaesserschutz.html',
     }),
