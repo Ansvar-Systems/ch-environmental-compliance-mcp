@@ -1,4 +1,5 @@
 import { buildMeta } from '../metadata.js';
+import { buildCitation } from '../citation.js';
 import { validateJurisdiction } from '../jurisdiction.js';
 import type { Database } from '../db.js';
 
@@ -37,6 +38,12 @@ export function handleGetNutrientLossLimits(db: Database, args: NutrientLossArgs
       legal_basis: l.legal_basis,
       notes: l.notes,
     })),
+    _citation: buildCitation(
+      'CH Nutrient Loss Limits',
+      'Nährstoffverlust-Grenzwerte',
+      'get_nutrient_loss_limits',
+      { ...(args.nutrient ? { nutrient: args.nutrient } : {}) },
+    ),
     _meta: buildMeta({
       source_url: 'https://www.blw.admin.ch/blw/de/home/nachhaltige-produktion/umwelt/naehrstoffe.html',
     }),
