@@ -1,4 +1,5 @@
 import { buildMeta } from '../metadata.js';
+import { buildCitation } from '../citation.js';
 import { validateJurisdiction } from '../jurisdiction.js';
 import type { Database } from '../db.js';
 
@@ -37,6 +38,12 @@ export function handleGetAmmoniaRules(db: Database, args: AmmoniaArgs) {
       effective_date: r.effective_date,
       notes: r.notes,
     })),
+    _citation: buildCitation(
+      'CH Ammonia Rules',
+      'Ammoniak-Emissionsvorschriften',
+      'get_ammonia_rules',
+      { ...(args.technique ? { technique: args.technique } : {}) },
+    ),
     _meta: buildMeta({
       source_url: 'https://www.bafu.admin.ch/bafu/de/home/themen/luft/fachinformationen/luftschadstoffquellen/emissionen-der-landwirtschaft.html',
     }),
