@@ -1,4 +1,5 @@
 import { buildMeta } from '../metadata.js';
+import { buildCitation } from '../citation.js';
 import { validateJurisdiction } from '../jurisdiction.js';
 import type { Database } from '../db.js';
 
@@ -36,6 +37,12 @@ export function handleGetBufferZoneRules(db: Database, args: BufferZoneArgs) {
       source_law: z.source_law,
       notes: z.notes,
     })),
+    _citation: buildCitation(
+      'CH Buffer Zone Rules',
+      'Pufferstreifen-Vorschriften',
+      'get_buffer_zone_rules',
+      { ...(args.zone_type ? { zone_type: args.zone_type } : {}) },
+    ),
     _meta: buildMeta({
       source_url: 'https://www.blw.admin.ch/blw/de/home/instrumente/direktzahlungen/oekologischer-leistungsnachweis.html',
     }),
