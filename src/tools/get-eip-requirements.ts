@@ -1,4 +1,5 @@
 import { buildMeta } from '../metadata.js';
+import { buildCitation } from '../citation.js';
 import { validateJurisdiction } from '../jurisdiction.js';
 import type { Database } from '../db.js';
 
@@ -50,6 +51,12 @@ export function handleGetEipRequirements(db: Database, args: EipArgs) {
       threshold: r.threshold,
       notes: r.notes,
     })),
+    _citation: buildCitation(
+      'CH EIP/UVP Requirements',
+      'Umweltverträglichkeitsprüfung Landwirtschaft',
+      'get_eip_requirements',
+      { ...(args.project_type ? { project_type: args.project_type } : {}) },
+    ),
     _meta: buildMeta({
       source_url: 'https://www.bafu.admin.ch/bafu/de/home/themen/uvp.html',
     }),

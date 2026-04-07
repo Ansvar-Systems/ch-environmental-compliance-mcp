@@ -1,4 +1,5 @@
 import { buildMeta } from '../metadata.js';
+import { buildCitation } from '../citation.js';
 import { validateJurisdiction } from '../jurisdiction.js';
 import type { Database } from '../db.js';
 
@@ -45,6 +46,12 @@ export function handleGetBffRequirements(db: Database, args: BffArgs) {
       botanical_criteria: t.botanical_criteria,
       notes: t.notes,
     })),
+    _citation: buildCitation(
+      'CH BFF Requirements',
+      'Biodiversitätsförderflächen',
+      'get_bff_requirements',
+      { ...(args.bff_type ? { bff_type: args.bff_type } : {}) },
+    ),
     _meta: buildMeta({
       source_url: 'https://www.blw.admin.ch/blw/de/home/instrumente/direktzahlungen/biodiversitaetsbeitraege.html',
     }),
